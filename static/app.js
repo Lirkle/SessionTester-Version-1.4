@@ -369,6 +369,160 @@ function showFinishBlockedModal(idx){
   document.getElementById("cancelMissBtn").onclick = () => el.remove();
 }
 
+// ===== Статистика по вопросам (per bankN) =====
+const QSTATS_KEY = "quiz_qstats_v1";
+
+function loadQStats(){
+  try {
+    const saved = localStorage.getItem(QSTATS_KEY);
+    if (!saved) return {};
+    return JSON.parse(saved);
+  } catch(e){
+    console.warn("Ошибка загрузки статистики вопросов:", e);
+    return {};
+  }
+}
+
+function saveQStats(allStats){
+  localStorage.setItem(QSTATS_KEY, JSON.stringify(allStats));
+}
+
+function updateQStatsOnFinish(TEST, answers, mode, bankKey){
+  if (!TEST || TEST.length === 0) {
+    console.warn("updateQStatsOnFinish: TEST пустой");
+    return;
+  }
+  
+  if (!bankKey) {
+    console.warn("updateQStatsOnFinish: bankKey не указан");
+    return;
+  }
+  
+  const allStats = loadQStats();
+  if (!allStats[bankKey]) allStats[bankKey] = {};
+  const bankStats = allStats[bankKey];
+  const now = new Date().toISOString();
+  
+  let updatedCount = 0;
+  for (const item of TEST){
+    if (!item || !item.bankN) {
+      console.warn("updateQStatsOnFinish: пропущен вопрос без bankN", item);
+      continue;
+    }
+    
+    const user = answers.get(item.id);
+    const bankN = String(item.bankN);
+    
+    if (!bankStats[bankN]){
+      bankStats[bankN] = { shown: 0, correct: 0, wrong: 0, streak: 0, lastSeen: "", lastResult: "" };
+    }
+    
+    const stat = bankStats[bankN];
+    stat.shown++;
+    stat.lastSeen = now;
+    
+    let ok = false;
+    if (mode === "mcq"){
+      ok = (item.correctIndex !== -1 && user === item.correctIndex);
+    } else {
+      ok = acceptText(user ?? "", item.correctText);
+    }
+    
+    if (ok){
+      stat.correct++;
+      stat.streak++;
+      stat.lastResult = "ok";
+    } else {
+      stat.wrong++;
+      stat.streak = 0;
+      stat.lastResult = "bad";
+    }
+    updatedCount++;
+  }
+  
+  saveQStats(allStats);
+  console.log(`updateQStatsOnFinish: обновлено ${updatedCount} вопросов для банка "${bankKey}"`);
+}
+
+// ===== Сессии/история результатов =====
+function getSessionsKey(bankKey){
+  return `quiz_sessions_${bankKey}`;
+}
+
+function saveSession(bankKey, sessionData){
+  const key = getSessionsKey(bankKey);
+  let sessions = [];
+  try {
+    const saved = localStorage.getItem(key);
+    if (saved) sessions = JSON.parse(saved);
+  } catch(e){
+    console.warn("Ошибка загрузки сессий:", e);
+  }
+  
+  sessions.unshift(sessionData);
+  sessions = sessions.slice(0, 50); // последние 50
+  
+  localStorage.setItem(key, JSON.stringify(sessions));
+}
+
+function loadSessions(bankKey){
+  const key = getSessionsKey(bankKey);
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved) return [];
+    return JSON.parse(saved);
+  } catch(e){
+    console.warn("Ошибка загрузки сессий:", e);
+    return [];
+  }
+}
+
+let isInLearningMode = false;
+
+// ===== Рекорды hardmode =====
+function getHardmodeRecordsKey(bankKey){
+  return `quiz_hardmode_records_${bankKey}`;
+}
+
+function loadHardmodeRecords(bankKey){
+  const key = getHardmodeRecordsKey(bankKey);
+  try {
+    const saved = localStorage.getItem(key);
+    if (!saved) return { bestStreakQuestions: 0, bestPercent100Plus: 0, bestTime100PlusMs: null };
+    return JSON.parse(saved);
+  } catch(e){
+    console.warn("Ошибка загрузки рекордов hardmode:", e);
+    return { bestStreakQuestions: 0, bestPercent100Plus: 0, bestTime100PlusMs: null };
+  }
+}
+
+function saveHardmodeRecords(bankKey, records){
+  const key = getHardmodeRecordsKey(bankKey);
+  localStorage.setItem(key, JSON.stringify(records));
+}
+
+function updateHardmodeRecords(bankKey, streakQuestions, percent, questionsCount, elapsedMs, isFail){
+  const records = loadHardmodeRecords(bankKey);
+  
+  if (streakQuestions > records.bestStreakQuestions){
+    records.bestStreakQuestions = streakQuestions;
+  }
+  
+  if (!isFail && questionsCount >= 100){
+    if (percent > records.bestPercent100Plus){
+      records.bestPercent100Plus = percent;
+    }
+    
+    if (percent === 100){
+      if (records.bestTime100PlusMs === null || elapsedMs < records.bestTime100PlusMs){
+        records.bestTime100PlusMs = elapsedMs;
+      }
+    }
+  }
+  
+  saveHardmodeRecords(bankKey, records);
+}
+
 function renderTest(){
   elQuiz.innerHTML = "";
   elOut.style.display = "none";
@@ -427,6 +581,16 @@ function renderTest(){
     qhead.appendChild(title);
     qhead.appendChild(flagLabel);
     card.appendChild(qhead);
+    
+    // Прогресс-бар для hardmode
+    if (hardMode){
+      const progressContainer = document.createElement("div");
+      progressContainer.className = "q-progress";
+      const progressBar = document.createElement("div");
+      progressBar.className = "q-progress__bar";
+      progressContainer.appendChild(progressBar);
+      card.appendChild(progressContainer);
+    }
 
     if (mode === "text"){
       const inp = document.createElement("input");
@@ -434,6 +598,7 @@ function renderTest(){
       inp.placeholder = "Введите ответ…";
       inp.value = answers.get(item.id) ?? "";
       inp.addEventListener("input", () => {
+  const wasEmpty = !answers.get(item.id) || String(answers.get(item.id)).trim() === "";
   answers.set(item.id, inp.value);
   setSkipUI(card, inp.value.trim() === "");
   if (hardMode && inp.value.trim() !== "") {
@@ -510,19 +675,46 @@ function finish(){
 
   let correct = 0;
   const wrong = [];
+  
+  // Получаем bankKey для статистики
+  const bankKey = localStorage.getItem("quiz_bank") || "gaziz";
+  
+  // Для hardmode: считаем streakQuestions (сколько вопросов подряд пройдено)
+  let hardmodeStreakQuestions = 0;
+  if (hardMode){
+    for (const item of TEST){
+      const user = answers.get(item.id);
+      let ok = false;
+      if (mode === "mcq"){
+        ok = (item.correctIndex !== -1 && user === item.correctIndex);
+      } else {
+        ok = acceptText(user ?? "", item.correctText);
+      }
+      if (ok && user !== undefined && user !== -1){
+        hardmodeStreakQuestions++;
+      } else {
+        break; // прерываем на первой ошибке
+      }
+    }
+  }
 
   for (const item of TEST){
     const user = answers.get(item.id);
 
     let ok = false;
+    let isTimeout = false;
     if (mode === "mcq"){
       if (item.correctIndex === -1){
         ok = false; // если ключ не нашли
       } else {
         ok = (user === item.correctIndex);
       }
+      // В hardmode -1 считается таймаутом
+      if (hardMode && user === -1) isTimeout = true;
     } else {
       ok = acceptText(user ?? "", item.correctText);
+      // В hardmode пустой ответ считается таймаутом
+      if (hardMode && (!user || String(user).trim() === "")) isTimeout = true;
     }
 
     // Авто-логика для сложных вопросов
@@ -556,6 +748,9 @@ function finish(){
 
 const percent = Math.floor((correct / TEST.length) * 100);
 
+// Обновляем статистику по вопросам
+updateQStatsOnFinish(TEST, answers, mode, bankKey);
+
 // === HARDMODE ACHIEVEMENT (только если 100% и тест >= 50) ===
 const hardModePassed = hardMode && TEST.length >= 50 && percent === 100;
 let achievedTier = 0;
@@ -566,6 +761,24 @@ if (hardModePassed) {
   else if (TEST.length >= 100) achievedTier = 2; // ++
 
   giveHardAchievement(achievedTier, TEST.length);
+}
+
+// Сохраняем сессию
+saveSession(bankKey, {
+  ts: Date.now(),
+  bankKey: bankKey,
+  questionsCount: TEST.length,
+  mode: mode,
+  percent: percent,
+  elapsedMs: elapsedMs,
+  avgMs: avgMs,
+  hardMode: hardMode,
+  hardModePassed: hardModePassed
+});
+
+// Обновляем рекорды hardmode
+if (hardMode){
+  updateHardmodeRecords(bankKey, hardmodeStreakQuestions, percent, TEST.length, elapsedMs, false);
 }
 
 
@@ -634,8 +847,6 @@ if (passed){
       resultTitle.focus();
     }
   }, 100);
-  
-  
 }
 
 const bankSelect = document.getElementById("bankSelect");
@@ -716,10 +927,28 @@ function clearQuestionTimers(){
 function startQuestionTimer(){
   clearQuestionTimers();
 
+  const card = document.getElementById("activeQuestionCard");
+  if (card){
+    const progressBar = card.querySelector(".q-progress__bar");
+    if (progressBar){
+      progressBar.style.animation = "none";
+      // Сбрасываем анимацию
+      requestAnimationFrame(() => {
+        progressBar.style.animation = "q-progress-fill 5s linear forwards";
+      });
+    }
+  }
+
   // мигание за 1.5 сек до конца (5.0 - 1.5 = 3.5)
   qWarnTimer = setTimeout(() => {
     const card = document.getElementById("activeQuestionCard");
-    if (card) card.classList.add("time-low");
+    if (card) {
+      card.classList.add("time-low");
+      // Вибрация на мобильных устройствах
+      if (navigator.vibrate && (window.matchMedia("(pointer: coarse)").matches || window.innerWidth < 768)){
+        navigator.vibrate([80, 40, 80]);
+      }
+    }
   }, 3500);
 
   qTimer = setTimeout(timeUp, 5000);
@@ -728,7 +957,13 @@ function startQuestionTimer(){
 function stopQuestionTimer(){
   clearQuestionTimers();
   const card = document.getElementById("activeQuestionCard");
-  if (card) card.classList.remove("time-low");
+  if (card) {
+    card.classList.remove("time-low");
+    const progressBar = card.querySelector(".q-progress__bar");
+    if (progressBar){
+      progressBar.style.animation = "none";
+    }
+  }
 }
 
 function timeUp(){
@@ -762,6 +997,26 @@ function showHardModeFail(){
   stopQuestionTimer();
   stopHardmodeMusic();
   stopTimer();
+  
+  // Сохраняем рекорды hardmode перед завершением
+  const bankKey = localStorage.getItem("quiz_bank") || "gaziz";
+  let hardmodeStreakQuestions = 0;
+  for (let i = 0; i < curIdx; i++){
+    const item = TEST[i];
+    const user = answers.get(item.id);
+    let ok = false;
+    if (mode === "mcq"){
+      ok = (item.correctIndex !== -1 && user === item.correctIndex);
+    } else {
+      ok = acceptText(user ?? "", item.correctText);
+    }
+    if (ok && user !== undefined && user !== -1){
+      hardmodeStreakQuestions++;
+    } else {
+      break;
+    }
+  }
+  updateHardmodeRecords(bankKey, hardmodeStreakQuestions, 0, TEST.length, getElapsedMs(), true);
   
   const card = document.getElementById("activeQuestionCard");
   if (card) {
@@ -955,7 +1210,9 @@ const saved = localStorage.getItem("quiz_bank") || "gaziz";
 bankSelect.value = saved;
 setBank(saved);
 
-bankSelect.addEventListener("change", () => setBank(bankSelect.value));
+bankSelect.addEventListener("change", () => {
+  setBank(bankSelect.value);
+});
 
 /** ========= UI ========= */
 modeSelect.addEventListener("change", () => {
@@ -1044,6 +1301,7 @@ finishBtn.addEventListener("click", () => {
 clearFlagsBtn.addEventListener("click", clearAllFlags);
 
 function showAnswers(){
+  isInLearningMode = true;
   elQuiz.innerHTML = "";
   const frag = document.createDocumentFragment();
 
@@ -1096,6 +1354,7 @@ function showAnswers(){
 learnBtn.addEventListener("click", showAnswers);
 
 function backToTest(){
+  isInLearningMode = false;
   renderTest();
   statusPill.textContent = "Тест запущен";
   meta.textContent = `Вопросов: ${TEST.length} (из ${ALL.length}). Режим: ${mode === "mcq" ? "A–E" : "текст"}.`;
@@ -1308,11 +1567,438 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
+// ===== Функции аналитики =====
+function openAnalyticsModal(){
+  const modal = document.getElementById("analyticsModal");
+  if (!modal) return;
+  renderAnalytics();
+  modal.style.display = "flex";
+  document.body.style.overflow = "hidden";
+}
+
+function closeAnalyticsModal(){
+  const modal = document.getElementById("analyticsModal");
+  if (!modal) return;
+  modal.style.display = "none";
+  document.body.style.overflow = "";
+}
+
+function renderAnalytics(){
+  const currentBankKey = localStorage.getItem("quiz_bank") || "gaziz";
+  const allStats = loadQStats();
+  const sessions = loadSessions(currentBankKey);
+  const records = loadHardmodeRecords(currentBankKey);
+  
+  console.log("renderAnalytics: currentBankKey =", currentBankKey);
+  console.log("renderAnalytics: allStats =", allStats);
+  console.log("renderAnalytics: bankStats =", allStats[currentBankKey]);
+  
+  const analyticsContent = document.getElementById("analyticsContent");
+  if (!analyticsContent) return;
+  
+  // Создаём map вопросов из текущего банка
+  const questionMap = new Map(ALL.map(x => [x.n, x.q]));
+  
+  const parts = [];
+  
+  // Фильтры
+  parts.push(`<div class="analytics-filters">`);
+  parts.push(`<div class="analytics-filters__row">`);
+  parts.push(`<label class="analytics-filter"><span>Банк:</span><select id="analyticsBankSelect" class="analytics-filter__input">`);
+  parts.push(`<option value="gaziz" ${currentBankKey === "gaziz" ? "selected" : ""}>Газиз</option>`);
+  parts.push(`<option value="azamat" ${currentBankKey === "azamat" ? "selected" : ""}>Азамат</option>`);
+  parts.push(`<option value="kundyz" ${currentBankKey === "kundyz" ? "selected" : ""}>Кундыз</option>`);
+  parts.push(`<option value="gaziz_kundyz" ${currentBankKey === "gaziz_kundyz" ? "selected" : ""}>Газиз + Кундыз</option>`);
+  parts.push(`</select></label>`);
+  
+  parts.push(`<label class="analytics-filter"><span>Мин. показов:</span><input type="number" id="analyticsMinShown" class="analytics-filter__input" value="3" min="1"></label>`);
+  
+  parts.push(`<label class="analytics-filter"><span>Сортировка:</span><select id="analyticsSort" class="analytics-filter__input">`);
+  parts.push(`<option value="wrong">По ошибкам (wrong desc)</option>`);
+  parts.push(`<option value="errorRate">По % ошибок (errorRate desc)</option>`);
+  parts.push(`<option value="score" selected>По проблемности (score desc)</option>`);
+  parts.push(`</select></label>`);
+  parts.push(`</div>`);
+  
+  parts.push(`<label class="analytics-filter-checkbox"><input type="checkbox" id="analyticsFilterMin"><span>Показывать только shown >= min</span></label>`);
+  parts.push(`</div>`);
+  
+  // Получаем статистику выбранного банка
+  const selectedBankKey = currentBankKey; // будет обновляться через обработчик
+  const bankStats = allStats[selectedBankKey] || {};
+  
+  // Подготавливаем данные
+  const problemQuestions = [];
+  for (const [bankN, stat] of Object.entries(bankStats)){
+    if (stat.shown === 0) continue;
+    const bankNNum = parseInt(bankN, 10);
+    const errorRate = stat.shown > 0 ? (stat.wrong / stat.shown) : 0;
+    const score = stat.wrong * 2 + (stat.shown - stat.correct);
+    const questionText = questionMap.get(bankNNum) || "(вопрос не найден)";
+    
+    problemQuestions.push({
+      bankN: bankNNum,
+      questionText,
+      ...stat,
+      errorRate,
+      score
+    });
+  }
+  
+  // Применяем фильтры и сортировку (при первом рендере используем значения по умолчанию)
+  const minShown = 3;
+  const sortBy = "score";
+  const filterMin = false; // по умолчанию фильтр выключен, чтобы видеть все данные
+  
+  let filtered = problemQuestions.filter(q => !filterMin || q.shown >= minShown);
+  
+  console.log(`renderAnalytics: problemQuestions.length = ${problemQuestions.length}, filtered.length = ${filtered.length}, minShown = ${minShown}, filterMin = ${filterMin}`);
+  
+  filtered.sort((a, b) => {
+    if (sortBy === "wrong"){
+      if (a.wrong !== b.wrong) return b.wrong - a.wrong;
+      return b.shown - a.shown;
+    } else if (sortBy === "errorRate"){
+      if (Math.abs(a.errorRate - b.errorRate) > 0.001) return b.errorRate - a.errorRate;
+      if (a.wrong !== b.wrong) return b.wrong - a.wrong;
+      return b.shown - a.shown;
+    } else { // score
+      if (a.score !== b.score) return b.score - a.score;
+      if (a.wrong !== b.wrong) return b.wrong - a.wrong;
+      return b.shown - a.shown;
+    }
+  });
+  
+  const top20 = filtered.slice(0, 20);
+  
+  // Пояснение
+  parts.push(`<div class="analytics-info muted small">Показаны вопросы с shown >= ${minShown}, иначе статистика нерелевантна.</div>`);
+  
+  // Таблица
+  if (top20.length === 0){
+    parts.push(`<div class="muted small" style="margin:20px 0; text-align:center;">Нет данных. Пройдите тест, чтобы увидеть статистику.</div>`);
+  } else {
+    parts.push(`<table class="analytics-table"><thead><tr><th>№</th><th>Вопрос</th><th>Показан</th><th>Правильно</th><th>Ошибок</th><th>% ошибок</th><th>Серия</th><th>Последний раз</th><th>Результат</th></tr></thead><tbody>`);
+    top20.forEach(q => {
+      const errorRatePct = q.shown > 0 ? Math.round((q.wrong / q.shown) * 100) : 0;
+      const lastSeenDate = q.lastSeen ? new Date(q.lastSeen) : null;
+      const lastSeenStr = lastSeenDate ? lastSeenDate.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+      const lastResultIcon = q.lastResult === "ok" ? "✅" : q.lastResult === "bad" ? "❌" : "—";
+      const questionShort = q.questionText.length > 100 ? q.questionText.substring(0, 100) + "..." : q.questionText;
+      const isLowSample = q.shown < minShown;
+      const rowClass = isLowSample ? "analytics-row-low-sample" : "";
+      
+      parts.push(`<tr class="analytics-table-row ${rowClass}" data-bank-n="${q.bankN}" title="Клик для копирования номера вопроса">`);
+      parts.push(`<td>${q.bankN}</td>`);
+      parts.push(`<td class="analytics-question-cell" title="${escapeHtml(q.questionText)}">${escapeHtml(questionShort)}</td>`);
+      parts.push(`<td>${q.shown}</td>`);
+      parts.push(`<td>${q.correct}</td>`);
+      parts.push(`<td>${q.wrong}</td>`);
+      parts.push(`<td>${errorRatePct}%</td>`);
+      parts.push(`<td>${q.streak}</td>`);
+      parts.push(`<td>${lastSeenStr}</td>`);
+      parts.push(`<td>${lastResultIcon}</td>`);
+      parts.push(`</tr>`);
+    });
+    parts.push(`</tbody></table>`);
+  }
+  
+  // Кнопка сброса статистики
+  parts.push(`<div style="margin-top:20px;">`);
+  parts.push(`<button id="resetAnalyticsBtn" class="secondary" style="width:100%; font-size:12px;">Сбросить статистику выбранного банка</button>`);
+  parts.push(`</div>`);
+  
+  // История сессий
+  parts.push(`<div id="analyticsSessionsSection" style="margin-top:32px; padding-top:24px; border-top:2px solid var(--stroke2);">`);
+  parts.push(`<div style="margin-bottom:16px;"><strong style="font-size:15px;">История сессий</strong></div>`);
+  
+  if (sessions.length === 0){
+    parts.push(`<div class="muted small" style="margin:20px 0; text-align:center;">Нет данных. Пройдите тест, чтобы увидеть историю.</div>`);
+  } else {
+    const recentSessions = sessions.slice(0, 10);
+    parts.push(`<table class="analytics-table"><thead><tr><th>Дата</th><th>Банк</th><th>Режим</th><th>%</th><th>Вопросов</th><th>Время</th><th>Hardmode</th></tr></thead><tbody>`);
+    recentSessions.forEach(s => {
+      const date = new Date(s.ts).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
+      const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+      const elapsedTime = fmt(s.elapsedMs);
+      const modeText = s.mode === "mcq" ? "A–E" : "Текст";
+      const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "azamat" ? "Азамат" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+      const hardmodeMark = s.hardMode ? "⚡" : "—";
+      const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
+      parts.push(`<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`);
+    });
+    parts.push(`</tbody></table>`);
+    
+    if (sessions.length > 10){
+      parts.push(`<details style="margin-top:12px;"><summary class="muted small" style="cursor:pointer; padding:8px;">Показать все ${sessions.length} сессий</summary>`);
+      parts.push(`<table class="analytics-table" style="margin-top:8px;"><thead><tr><th>Дата</th><th>Банк</th><th>Режим</th><th>%</th><th>Вопросов</th><th>Время</th><th>Hardmode</th></tr></thead><tbody>`);
+      sessions.slice(10).forEach(s => {
+        const date = new Date(s.ts).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
+        const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+        const elapsedTime = fmt(s.elapsedMs);
+        const modeText = s.mode === "mcq" ? "A–E" : "Текст";
+        const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "azamat" ? "Азамат" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+        const hardmodeMark = s.hardMode ? "⚡" : "—";
+        const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
+        parts.push(`<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`);
+      });
+      parts.push(`</tbody></table></details>`);
+    }
+    
+    parts.push(`<button id="clearSessionsBtn" class="secondary" style="width:100%; margin-top:12px; font-size:12px;">Очистить историю сессий</button>`);
+  }
+  
+  parts.push(`</div>`);
+  
+  analyticsContent.innerHTML = parts.join("");
+  
+  // Обработчики фильтров
+  const bankSelect = document.getElementById("analyticsBankSelect");
+  const minShownInput = document.getElementById("analyticsMinShown");
+  const sortSelect = document.getElementById("analyticsSort");
+  const filterMinCheckbox = document.getElementById("analyticsFilterMin");
+  
+  // Обработчик кнопки очистки истории сессий (при первоначальном рендере)
+  const clearSessionsBtnInitial = document.getElementById("clearSessionsBtn");
+  if (clearSessionsBtnInitial){
+    clearSessionsBtnInitial.onclick = () => {
+      const bankKey = bankSelect ? bankSelect.value : currentBankKey;
+      const bankName = bankSelect ? bankSelect.options[bankSelect.selectedIndex].text : currentBankKey;
+      const confirmed = confirm(`Очистить историю сессий для банка "${bankName}"? Это действие нельзя отменить.`);
+      if (confirmed){
+        localStorage.setItem(getSessionsKey(bankKey), JSON.stringify([]));
+        renderAnalytics(); // перерисовываем всю аналитику
+      }
+    };
+  }
+  
+  function updateSessions(bankKey){
+    const sessions = loadSessions(bankKey);
+    const sessionsSection = document.getElementById("analyticsSessionsSection");
+    if (!sessionsSection) return;
+    
+    let sessionsHtml = `<div style="margin-bottom:16px;"><strong style="font-size:15px;">История сессий</strong></div>`;
+    
+    if (sessions.length === 0){
+      sessionsHtml += `<div class="muted small" style="margin:20px 0; text-align:center;">Нет данных. Пройдите тест, чтобы увидеть историю.</div>`;
+    } else {
+      const recentSessions = sessions.slice(0, 10);
+      sessionsHtml += `<table class="analytics-table"><thead><tr><th>Дата</th><th>Банк</th><th>Режим</th><th>%</th><th>Вопросов</th><th>Время</th><th>Hardmode</th></tr></thead><tbody>`;
+      recentSessions.forEach(s => {
+        const date = new Date(s.ts).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
+        const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+        const elapsedTime = fmt(s.elapsedMs);
+        const modeText = s.mode === "mcq" ? "A–E" : "Текст";
+        const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "azamat" ? "Азамат" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+        const hardmodeMark = s.hardMode ? "⚡" : "—";
+        const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
+        sessionsHtml += `<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`;
+      });
+      sessionsHtml += `</tbody></table>`;
+      
+      if (sessions.length > 10){
+        sessionsHtml += `<details style="margin-top:12px;"><summary class="muted small" style="cursor:pointer; padding:8px;">Показать все ${sessions.length} сессий</summary>`;
+        sessionsHtml += `<table class="analytics-table" style="margin-top:8px;"><thead><tr><th>Дата</th><th>Банк</th><th>Режим</th><th>%</th><th>Вопросов</th><th>Время</th><th>Hardmode</th></tr></thead><tbody>`;
+        sessions.slice(10).forEach(s => {
+          const date = new Date(s.ts).toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", year: "2-digit" });
+          const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
+          const elapsedTime = fmt(s.elapsedMs);
+          const modeText = s.mode === "mcq" ? "A–E" : "Текст";
+          const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "azamat" ? "Азамат" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+          const hardmodeMark = s.hardMode ? "⚡" : "—";
+          const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
+          sessionsHtml += `<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`;
+        });
+        sessionsHtml += `</tbody></table></details>`;
+      }
+      
+      sessionsHtml += `<button id="clearSessionsBtn" class="secondary" style="width:100%; margin-top:12px; font-size:12px;">Очистить историю сессий</button>`;
+    }
+    
+    sessionsSection.innerHTML = sessionsHtml;
+    
+    // Обновляем обработчик кнопки очистки
+    const clearSessionsBtn = document.getElementById("clearSessionsBtn");
+    if (clearSessionsBtn){
+      clearSessionsBtn.onclick = () => {
+        const bankSelectEl = document.getElementById("analyticsBankSelect");
+        const currentBankKeyForClear = bankSelectEl ? bankSelectEl.value : bankKey;
+        const bankName = bankSelectEl ? bankSelectEl.options[bankSelectEl.selectedIndex].text : bankKey;
+        const confirmed = confirm(`Очистить историю сессий для банка "${bankName}"? Это действие нельзя отменить.`);
+        if (confirmed){
+          localStorage.setItem(getSessionsKey(currentBankKeyForClear), JSON.stringify([]));
+          updateSessions(currentBankKeyForClear);
+        }
+      };
+    }
+  }
+  
+  function updateTable(){
+    const bankKey = bankSelect.value;
+    const min = parseInt(minShownInput.value, 10) || 3;
+    const sort = sortSelect.value;
+    const filter = filterMinCheckbox.checked;
+    
+    const currentAllStats = loadQStats();
+    const stats = currentAllStats[bankKey] || {};
+    const qMap = new Map(ALL.map(x => [x.n, x.q]));
+    
+    // Обновляем историю сессий при смене банка
+    updateSessions(bankKey);
+    
+    const questions = [];
+    for (const [bankN, stat] of Object.entries(stats)){
+      if (stat.shown === 0) continue;
+      const bankNNum = parseInt(bankN, 10);
+      const errorRate = stat.shown > 0 ? (stat.wrong / stat.shown) : 0;
+      const score = stat.wrong * 2 + (stat.shown - stat.correct);
+      const questionText = qMap.get(bankNNum) || "(вопрос не найден)";
+      
+      questions.push({
+        bankN: bankNNum,
+        questionText,
+        ...stat,
+        errorRate,
+        score
+      });
+    }
+    
+    let filtered = questions.filter(q => !filter || q.shown >= min);
+    
+    filtered.sort((a, b) => {
+      if (sort === "wrong"){
+        if (a.wrong !== b.wrong) return b.wrong - a.wrong;
+        return b.shown - a.shown;
+      } else if (sort === "errorRate"){
+        if (Math.abs(a.errorRate - b.errorRate) > 0.001) return b.errorRate - a.errorRate;
+        if (a.wrong !== b.wrong) return b.wrong - a.wrong;
+        return b.shown - a.shown;
+      } else {
+        if (a.score !== b.score) return b.score - a.score;
+        if (a.wrong !== b.wrong) return b.wrong - a.wrong;
+        return b.shown - a.shown;
+      }
+    });
+    
+    const top20 = filtered.slice(0, 20);
+    const tbody = analyticsContent.querySelector("tbody");
+    const infoEl = analyticsContent.querySelector(".analytics-info");
+    
+    // Обновляем пояснение
+    if (infoEl) infoEl.textContent = `Показаны вопросы с shown >= ${min}, иначе статистика нерелевантна.`;
+    
+    if (!tbody) return;
+    
+    if (top20.length === 0){
+      tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding:20px;" class="muted small">Нет данных</td></tr>`;
+      return;
+    }
+    
+    // Обновляем таблицу
+    tbody.innerHTML = top20.map(q => {
+      const errorRatePct = q.shown > 0 ? Math.round((q.wrong / q.shown) * 100) : 0;
+      const lastSeenDate = q.lastSeen ? new Date(q.lastSeen) : null;
+      const lastSeenStr = lastSeenDate ? lastSeenDate.toLocaleDateString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "—";
+      const lastResultIcon = q.lastResult === "ok" ? "✅" : q.lastResult === "bad" ? "❌" : "—";
+      const questionShort = q.questionText.length > 100 ? q.questionText.substring(0, 100) + "..." : q.questionText;
+      const isLowSample = q.shown < min;
+      const rowClass = isLowSample ? "analytics-row-low-sample" : "";
+      
+      return `<tr class="analytics-table-row ${rowClass}" data-bank-n="${q.bankN}" title="Клик для копирования номера вопроса">
+        <td>${q.bankN}</td>
+        <td class="analytics-question-cell" title="${escapeHtml(q.questionText)}">${escapeHtml(questionShort)}</td>
+        <td>${q.shown}</td>
+        <td>${q.correct}</td>
+        <td>${q.wrong}</td>
+        <td>${errorRatePct}%</td>
+        <td>${q.streak}</td>
+        <td>${lastSeenStr}</td>
+        <td>${lastResultIcon}</td>
+      </tr>`;
+    }).join("");
+    
+    // Добавляем обработчики клика на строки
+    tbody.querySelectorAll(".analytics-table-row").forEach(row => {
+      row.addEventListener("click", () => {
+        const bankN = row.dataset.bankN;
+        navigator.clipboard?.writeText(bankN).then(() => {
+          // Можно добавить toast уведомление
+        }).catch(() => {});
+      });
+    });
+  }
+  
+  if (bankSelect) bankSelect.addEventListener("change", () => {
+    updateTable();
+    updateSessions(bankSelect.value);
+  });
+  if (minShownInput) minShownInput.addEventListener("input", updateTable);
+  if (sortSelect) sortSelect.addEventListener("change", updateTable);
+  if (filterMinCheckbox) filterMinCheckbox.addEventListener("change", updateTable);
+  
+  // Обработчик кнопки сброса
+  const resetBtn = document.getElementById("resetAnalyticsBtn");
+  if (resetBtn){
+    resetBtn.onclick = () => {
+      const bankKey = bankSelect.value;
+      const bankName = bankSelect.options[bankSelect.selectedIndex].text;
+      const confirmed = confirm(`Сбросить статистику для банка "${bankName}"? Это действие нельзя отменить.`);
+      if (confirmed){
+        const currentAllStats = loadQStats();
+        delete currentAllStats[bankKey];
+        saveQStats(currentAllStats);
+        renderAnalytics();
+      }
+    };
+  }
+  
+  
+  // Добавляем обработчики клика на строки
+  setTimeout(() => {
+    analyticsContent.querySelectorAll(".analytics-table-row").forEach(row => {
+      row.addEventListener("click", () => {
+        const bankN = row.dataset.bankN;
+        navigator.clipboard?.writeText(bankN).then(() => {
+          // Можно добавить toast уведомление
+        }).catch(() => {});
+      });
+    });
+  }, 0);
+}
+
 // Инициализация статистики при загрузке страницы
 loadStats();
 startPresenceTimer();
 updateStatsUI();
 updateAchievementDisplay();
+
+// Обработчики для модального окна аналитики
+const analyticsBtn = document.getElementById("analyticsBtn");
+const analyticsModal = document.getElementById("analyticsModal");
+const analyticsModalClose = document.getElementById("analyticsModalClose");
+
+if (analyticsBtn){
+  analyticsBtn.addEventListener("click", openAnalyticsModal);
+}
+
+if (analyticsModalClose){
+  analyticsModalClose.addEventListener("click", closeAnalyticsModal);
+}
+
+if (analyticsModal){
+  const overlay = analyticsModal.querySelector(".analytics-modal__overlay");
+  if (overlay){
+    overlay.addEventListener("click", closeAnalyticsModal);
+  }
+  
+  // Закрытие по Escape
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && analyticsModal.style.display === "flex"){
+      closeAnalyticsModal();
+    }
+  });
+}
+
 
 // Увеличение счетчика тестов при завершении теста
 // Интеграция в функцию finish() - добавим вызов в конце finish()

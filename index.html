@@ -114,6 +114,7 @@
           </div>
 
           <button id="clearFlagsBtn" class="secondary" style="width:100%;margin-top:8px;">Очистить флажки</button>
+          <button id="analyticsBtn" class="secondary" style="width:100%;margin-top:8px;">📊 Аналитика</button>
 
           <div class="helper">
             Подсказка: в режиме <span class="kbd">A–E</span> варианты собираются автоматически из базы ответов.
@@ -172,6 +173,20 @@
       </div>
     </footer>
 
+  </div>
+
+  <!-- Analytics Modal -->
+  <div id="analyticsModal" class="analytics-modal" style="display:none;">
+    <div class="analytics-modal__overlay"></div>
+    <div class="analytics-modal__content">
+      <div class="analytics-modal__header">
+        <h2 class="analytics-modal__title">📊 Аналитика</h2>
+        <button id="analyticsModalClose" class="analytics-modal__close" aria-label="Закрыть">×</button>
+      </div>
+      <div class="analytics-modal__body">
+        <div id="analyticsContent"></div>
+      </div>
+    </div>
   </div>
 
   <!-- Banks + App -->
