@@ -495,7 +495,8 @@ const hardModePassed = hardMode && TEST.length >= 50 && percent === 100;
 let achievedTier = 0;
 if (hardModePassed) {
   achievedTier = 1;                 // 50–99  -> +
-  if (TEST.length >= 200) achievedTier = 3;      // +++
+  if (TEST.length >= 290) achievedTier = 4;      // ⭐
+  else if (TEST.length >= 200) achievedTier = 3;      // +++
   else if (TEST.length >= 100) achievedTier = 2; // ++
 
   giveHardAchievement(achievedTier, TEST.length);
@@ -505,7 +506,7 @@ if (hardModePassed) {
   const parts = [];
   // Add tabindex="-1" to result title for accessibility + focus
   if (hardModePassed) {
-    const tierMarks = ["", "+", "++", "+++"][achievedTier];
+    const tierMarks = ["", "+", "++", "+++", "⭐"][achievedTier];
     parts.push(`<div class="result" id="resultTitle" tabindex="-1">🏆 <span class="ok">Хардмод пройден!</span> <span class="${percent >= 60 ? "ok" : "bad"}">${percent}%</span> · Достижение: <span class="ok">${tierMarks}</span></div>`);
     parts.push(`<div class="muted">Правильных ответов: <b>${correct}</b> из <b>${TEST.length}</b>.</div>`);
     parts.push(`<div class="muted">Время прохождения: <b>${fmt(elapsedMs)}</b> · Среднее на вопрос: <b>${fmt(avgMs)}</b></div>`);
@@ -768,7 +769,7 @@ function giveHardAchievement(tier, questionsCount){
 }
 
 function showAchievementToast(tier, questionsCount){
-  const marks = ["", "+", "++", "+++"][tier];
+  const marks = ["", "+", "++", "+++", "⭐"][tier];
   const el = document.createElement("div");
   el.className = "achv-toast";
   el.innerHTML = `
@@ -1115,13 +1116,13 @@ function updateAchievementDisplay(){
 
   pill.style.display = "inline-flex";
 
-  const marks = ["", "+", "++", "+++"][tier];
+  const marks = ["", "+", "++", "+++", "⭐"][tier];
 
   display.textContent = marks;
-  display.classList.remove("tier-1","tier-2","tier-3");
+  display.classList.remove("tier-1","tier-2","tier-3","tier-4");
   display.classList.add(`tier-${tier}`);
 
-  cup.classList.remove("tier-1","tier-2","tier-3");
+  cup.classList.remove("tier-1","tier-2","tier-3","tier-4");
   cup.classList.add(`tier-${tier}`);
 }
 

@@ -214,6 +214,11 @@
   background-image: linear-gradient(120deg, #ffd700, #fff2a8, #ffd700);
 }
 
+.achievement-text.tier-4{
+  background-image: linear-gradient(120deg, #e0e7ff, #ffffff, #c084fc, #e0e7ff);
+  background-size: 300% 300%;
+}
+
 @keyframes achvGradient{
   0%   { background-position: 0% 50%; }
   50%  { background-position: 100% 50%; }
@@ -239,6 +244,7 @@
     .achv-cup.tier-1{ color:#cd7f32; }
     .achv-cup.tier-2{ color:#c0c0c0; }
     .achv-cup.tier-3{ color:#ffd700; }
+    .achv-cup.tier-4{ color:#c084fc; }
 
     .content{
       max-width:1200px;
