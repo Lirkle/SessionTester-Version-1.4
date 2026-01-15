@@ -757,6 +757,10 @@
       border-radius: 16px;
       background: rgba(255,255,255,.03);
       transition: background .12s ease, border-color .12s ease, transform .08s ease;
+
+      user-select: none;
+  -webkit-user-select: none;
+  -ms-user-select: none;
     }
     .choice:hover{
       background: rgba(100,167,255,.06);
