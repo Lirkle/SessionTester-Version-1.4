@@ -114,7 +114,7 @@
       width:40px;height:40px;
       border-radius:14px;
       background:
-  url(static/img/icon.png) center / contain no-repeat,
+  url(/SessionTester-Version-1.4/static/img/icon.png) center / contain no-repeat,
   radial-gradient(18px 18px at 30% 30%, rgba(255, 255, 255, .20), transparent 60%);
       box-shadow: 0 14px 40px rgba(43,108,255,.18);
       border:1px solid rgba(255,255,255,.12);
@@ -895,4 +895,20 @@
 @keyframes timeLowBlink{
   0%,100%{ filter: none; }
   50%{ filter: brightness(1.25); }
+}
+@media (max-width: 640px){
+  .topbar,
+  .bottombar{
+    position: static;   /* отключает sticky */
+  }
+
+  .sidebar{
+    position: static;   /* чтобы не прилипала тоже */
+    top: auto;
+  }
+
+  /* если из-за topbar/bottombar были отступы — можно чуть подкрутить */
+  .app.is-running .content{
+    padding-bottom: 18px;
+  }
 }

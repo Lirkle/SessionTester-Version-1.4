@@ -584,12 +584,14 @@ if (hardModeToggle){
 }
 
 // ===== Hardmode music =====
+const BASE = "/" + location.pathname.split("/")[1]; // "/SessionTester-Version-1.4"
 const HARDMODE_PLAYLIST = [
-  "static/music/01.mp3",
-  "static/music/02.mp3",
-  "static/music/03.mp3",
-  "static/music/04.mp3",
+  `${BASE}/static/music/01.mp3`,
+  `${BASE}/static/music/02.mp3`,
+  `${BASE}/static/music/03.mp3`,
+  `${BASE}/static/music/04.mp3`,
 ];
+
 
 let hmAudio = null;
 let hmIndex = 0;
