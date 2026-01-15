@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Quiz</title>
+  <link rel="icon" type="image/png" href="static/img/icon.png">
+  <link rel="stylesheet" href="static/styles.css">
+</head>
+
+<body>
+  <div class="app">
+
+    <!-- TOP BAR -->
+    <header class="topbar">
+      <div class="topbar__inner">
+        <div class="brand">
+          <div class="logo" aria-hidden="true"></div>
+          <div>
+            <h1>Quiz: <span id="testSizeDisplay">10</span> случайных вопросов</h1>
+            <div class="subtitle">
+              Режим: <span class="kbd">ввод</span> или <span class="kbd">A–E</span> · В A–E: 1 правильный + 4 случайных
+            </div>
+          </div>
+        </div>
+
+        <div class="topstats">
+          <span class="pill" id="statusPill"><span class="dot"></span>Тест не запущен</span>
+          <span class="pill"><span class="dot" style="background:var(--accent2);box-shadow:0 0 0 3px rgba(100,167,255,.18)"></span><span id="meta"></span></span>
+          <span class="pill stats-pill" id="achievementPill" style="display:none;">
+            <span class="achv-cup" id="achievementCup" aria-hidden="true"></span>
+            <span class="achievement-text" id="achievementDisplay"></span>
+          </span>
+          <span class="pill stats-pill"><span class="dot" style="background:var(--warn);box-shadow:0 0 0 3px rgba(255,192,107,.18)"></span>Время: <span id="siteTimeDisplay">0 мин 0 сек</span></span>
+          <span class="pill stats-pill"><span class="dot" style="background:var(--accent);box-shadow:0 0 0 3px rgba(43,108,255,.18)"></span>EXP: <span id="expDisplay">0</span> · <span id="rankDisplay">Новичок</span></span>
+          <span class="pill stats-pill"><span class="dot" style="background:var(--ok);box-shadow:0 0 0 3px rgba(66,230,163,.18)"></span>Тестов: <span id="testsCompletedDisplay">0</span></span>
+        </div>
+      </div>
+    </header>
+
+    <!-- CONTENT -->
+    <main class="content">
+
+      <!-- SIDEBAR -->
+      <aside class="panel sidebar">
+        <div class="panel__head">
+          <p class="panel__title">Настройки теста</p>
+          <span class="mono">Ctrl+F / поиск</span>
+        </div>
+
+        <div class="panel__body">
+          <div class="field">
+            <div class="label">
+              <span>Режим</span>
+              <span class="muted small">A–E / текст</span>
+            </div>
+            <select id="modeSelect">
+              <option value="mcq">A–E (выбор)</option>
+              <option value="text">Текст (ввод)</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <div class="label">
+              <span>Кол-во вопросов</span>
+              <span class="muted small">10–<span id="maxTestSizeDisplay">150</span></span>
+            </div>
+            <select id="testSizeSelect">
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="30">30</option>
+              <option value="50">50</option>
+              <option value="140">140</option>
+              <option value="150">150</option>
+              <option value="210">210</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <div class="label">
+              <span>Тест</span>
+              <span class="muted small">банк</span>
+            </div>
+            <select id="bankSelect">
+              <option value="gaziz">Газиз</option>
+              <option value="azamat">Азамат</option>
+              <option value="kundyz">Кундыз</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <div class="label">
+              <span>Hardmode</span>
+              <span class="muted small">анти-очевидные варианты</span>
+            </div>
+            <label style="display:flex;gap:10px;align-items:center;">
+              <input id="hardModeToggle" type="checkbox">
+              <span>Включить</span>
+            </label>
+          </div>
+
+          <div class="btnrow">
+            <button id="startBtn">Начать</button>
+            <button id="restartBtn" class="secondary" disabled>Заново</button>
+          </div>
+
+          <button id="clearFlagsBtn" class="secondary" style="width:100%;margin-top:8px;">Очистить флажки</button>
+
+          <div class="helper">
+            Подсказка: в режиме <span class="kbd">A–E</span> варианты собираются автоматически из базы ответов.
+            В <span class="kbd">Текст</span> — вводишь ответ вручную.
+          </div>
+        </div>
+      </aside>
+
+      <!-- MAIN -->
+      <section class="main">
+        <div class="hero">
+          <div class="hero__row">
+            <div class="hero__left">
+              <p class="hero__title">Вопросы</p>
+              <div class="muted small">
+                Ответы сохраняются в процессе. После “Завершить” покажет результат и ошибки.
+              </div>
+            </div>
+
+            <div class="hero__meta">
+              <span class="pill"><span class="dot" style="background:var(--warn)"></span>Статус: <span id="statusText">готов</span></span>
+              <span class="pill"><span class="dot" style="background:var(--accent2)"></span>Банк: <span id="bankText">—</span></span>
+              <span class="pill"><span class="dot" style="background:var(--ok)"></span>Таймер: <span id="timerText">—</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- IMPORTANT: id="out" kept for your app.js (moved above quiz for better visibility) -->
+        <div id="out" class="card"></div>
+
+        <!-- IMPORTANT: id="quiz" and class="grid" kept for your app.js -->
+        <div id="quiz" class="grid"></div>
+      </section>
+
+    </main>
+
+    <!-- BOTTOM ACTION BAR -->
+    <footer class="bottombar">
+      <div class="bottombar__inner">
+        <div class="muted small">
+          Горячие клавиши: <span class="kbd">Tab</span> навигация · <span class="kbd">Enter</span> подтверждение
+        </div>
+
+        <div class="timer-display">
+          <span class="timer-display__label">Время:</span>
+          <span id="floatingTimerDisplay">0:00</span>
+        </div>
+
+        <div class="actions">
+          <button id="finishBtn" class="secondary" disabled>Завершить и посчитать</button>
+          <button id="learnBtn" class="secondary" disabled>Обучение (показать ответы)</button>
+          <button id="backBtn" class="secondary" disabled>← Назад к тесту</button>
+          <button id="hardBtn" type="button" class="secondary" disabled>Сложные вопросы</button>
+        </div>
+      </div>
+    </footer>
+
+  </div>
+
+  <!-- Banks + App -->
+  <script>window.QUIZ_BANKS = window.QUIZ_BANKS || {};</script>
+  <script src="banks/gaziz.bank.js"></script>
+  <script src="banks/azamat.bank.js"></script>
+  <script src="banks/azamat.hard.bank.js"></script>
+  <script src="banks/kundyz.bank.js"></script>
+  <script src="static/app.js"></script>
+
+  <!-- Optional small UI mirrors (doesn't break app.js; safe if elements exist) -->
+  <script>
+    // These are purely visual mirrors; app.js can ignore them.
+    const bankText = document.getElementById('bankText');
+    const statusText = document.getElementById('statusText');
+
+    function syncMirrors(){
+      const bankSelectEl = document.getElementById('bankSelect');
+      if (bankText && bankSelectEl) bankText.textContent = bankSelectEl.options[bankSelectEl.selectedIndex]?.textContent || '—';
+      const sp = document.getElementById('statusPill')?.textContent?.trim();
+      if (statusText) statusText.textContent = sp || 'готов';
+    }
+
+    const bankSelectEl = document.getElementById('bankSelect');
+    if (bankSelectEl) bankSelectEl.addEventListener('change', syncMirrors);
+    setInterval(syncMirrors, 700);
+    syncMirrors();
+  </script>
+</body>
+</html>

@@ -1,0 +1,883 @@
+/* 1) Скажи браузеру: страница тёмная */
+    html { color-scheme: dark; }
+
+    :root{
+      --bg:#070b12;
+      --panel:rgba(16,24,36,.88);
+      --panel2:rgba(12,18,28,.82);
+      --stroke:rgba(120,170,255,.18);
+      --stroke2:rgba(255,255,255,.06);
+
+      --text:#e9f0ff;
+      --muted:#a4b5d6;
+      --muted2:#7f93b8;
+
+      --accent:#2b6cff;
+      --accent2:#64a7ff;
+
+      --ok:#42e6a3;
+      --bad:#ff6b7a;
+      --warn:#ffc06b;
+
+      --r12:12px;
+      --r16:16px;
+      --r20:20px;
+
+      --shadow:0 16px 60px rgba(0,0,0,.45);
+      --shadow2:0 10px 30px rgba(0,0,0,.35);
+
+      --ring:0 0 0 3px rgba(100,167,255,.28);
+    }
+
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0;
+      color:var(--text);
+      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+      background:
+        linear-gradient(180deg, rgba(7,11,18,0) 0%, rgba(7,11,18,.3) 100%),
+        radial-gradient(800px 500px at 15% -10%, rgba(43,108,255,.08), transparent 55%),
+        radial-gradient(700px 450px at 85% 20%, rgba(100,167,255,.06), transparent 50%),
+        var(--bg);
+      overflow-x:hidden;
+      position:relative;
+      background-attachment: fixed;
+    }
+
+    /* Premium noise texture overlay */
+    body::before{
+      content:"";
+      position:fixed;
+      inset:-20px;
+      pointer-events:none;
+      opacity:.08;
+      background:
+        repeating-linear-gradient(
+          0deg,
+          rgba(255,255,255,.015) 0 1px,
+          transparent 1px 3px
+        );
+      transform:translateZ(0);
+      will-change:transform;
+      z-index:1;
+    }
+
+    a{color:inherit}
+    .muted{color:var(--muted); font-size:14px; line-height:1.45}
+    .small{font-size:13px}
+    .kbd{
+      font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+      border:1px solid var(--stroke);
+      padding:2px 7px;
+      border-radius:10px;
+      background:rgba(255,255,255,.04);
+      color:#cfe0ff;
+    }
+
+    /* Layout */
+    .app{
+      min-height:100%;
+      display:flex;
+      flex-direction:column;
+      position:relative;
+      z-index:0;
+    }
+
+    .topbar{
+      position:sticky;
+      top:0;
+      z-index:50;
+      backdrop-filter: blur(14px);
+      background: linear-gradient(180deg, rgba(7,11,18,.86), rgba(7,11,18,.55));
+      border-bottom:1px solid var(--stroke2);
+    }
+
+    .topbar__inner{
+      max-width:1200px;
+      margin:0 auto;
+      padding:16px 18px;
+      display:grid;
+      grid-template-columns: minmax(0, 1fr) auto; /* слева бренд (может сжиматься), справа pills */
+      gap:14px;
+      align-items:center;
+    }
+
+    .brand{
+      display:flex;
+      gap:12px;
+      align-items:center;
+      min-width:0;              /* важно: разрешаем сжиматься */
+    }
+
+    .logo{
+      width:40px;height:40px;
+      border-radius:14px;
+      background:
+  url(/static/img/icon.png) center / contain no-repeat,
+  radial-gradient(18px 18px at 30% 30%, rgba(255, 255, 255, .20), transparent 60%);
+      box-shadow: 0 14px 40px rgba(43,108,255,.18);
+      border:1px solid rgba(255,255,255,.12);
+      flex:0 0 auto;
+    }
+
+    h1{
+      margin:0;
+      font-size:18px;
+      letter-spacing:.2px;
+      line-height:1.15;
+    }
+    .subtitle{
+      color:var(--muted2);
+      font-size:12.5px;
+      margin-top:2px;
+      white-space:nowrap;
+      overflow:hidden;
+      text-overflow:ellipsis;
+      max-width:34ch;           /* было 52ch — слишком жирно для топбара */
+    }
+
+    .topstats{
+      display:flex;
+      gap:8px;
+      align-items:center;
+      flex-wrap:wrap;
+      justify-content:flex-end;
+      justify-self:end;
+      min-width:0;
+    }
+
+    /* Stats Pills in Topbar */
+    .stats-pill{
+      font-size:12px;
+      white-space:nowrap;
+      flex-shrink:0;
+    }
+
+    .pill{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:7px 10px;
+      border-radius:999px;
+      background:rgba(255,255,255,.04);
+      border:1px solid var(--stroke);
+      box-shadow: 0 8px 22px rgba(0,0,0,.20);
+      font-size:12.5px;
+      color:var(--muted);
+      white-space:nowrap;
+      flex-shrink:0;
+      vertical-align:middle;
+    }
+
+    @media (max-width: 980px){
+      .topbar__inner{
+        grid-template-columns: 1fr;
+        align-items:start;
+      }
+      .topstats{
+        justify-self:start;
+      }
+    }
+
+    .dot{
+      width:8px;height:8px;border-radius:999px;
+      background: var(--warn);
+      box-shadow: 0 0 0 3px rgba(255,192,107,.18);
+    }
+    #statusPill .dot{ background: var(--warn); box-shadow: 0 0 0 3px rgba(255,192,107,.18); }
+    
+    /* Градиент только на тексте + / ++ / +++ */
+    .achievement-text{
+      display:inline-block;
+      font-weight:800;
+      letter-spacing:1.4px;
+      font-size:13px;
+      text-transform:uppercase;
+      background: linear-gradient(120deg, #cd7f32, #f5c18b);
+      -webkit-background-clip:text;
+      background-clip:text;
+      -webkit-text-fill-color:transparent;
+      color:transparent;
+    }
+    .achievement-text.tier-2{
+      background: linear-gradient(120deg, #c0c0c0, #f5f5f5);
+    }
+    .achievement-text.tier-3{
+      background: linear-gradient(120deg, #ffd700, #fff2a8);
+    }
+
+    /* Кубок вместо точки в достижении */
+    .achv-cup{
+      width:18px;
+      height:18px;
+      border-radius:6px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:12px;
+      background:rgba(255,255,255,.06);
+    }
+    .achv-cup::before{
+      content:"🏆";
+    }
+    .achv-cup.tier-1{ color:#cd7f32; }
+    .achv-cup.tier-2{ color:#c0c0c0; }
+    .achv-cup.tier-3{ color:#ffd700; }
+
+    .content{
+      max-width:1200px;
+      width:100%;
+      margin:0 auto;
+      padding:18px;
+      display:grid;
+      grid-template-columns: 360px 1fr;
+      gap:16px;
+      align-items:start;
+    }
+
+    /* Плавающий таймер во время прохождения теста */
+    .floating-timer{
+      position:fixed;
+      top:80px;
+      right:20px;
+      background:rgba(255,192,107,.15);
+      border:2px solid var(--warn);
+      border-radius:12px;
+      padding:12px 16px;
+      font-size:14px;
+      font-weight:600;
+      color:var(--warn);
+      box-shadow:0 8px 24px rgba(255,192,107,.25);
+      z-index:45;
+      backdrop-filter:blur(10px);
+      white-space:nowrap;
+      animation:slideIn 0.3s ease-out;
+    }
+
+    .floating-timer__label{
+      display:inline-block;
+      margin-right:6px;
+      opacity:0.8;
+    }
+
+    @keyframes slideIn{
+      from{
+        opacity:0;
+        transform:translateY(-10px);
+      }
+      to{
+        opacity:1;
+        transform:translateY(0);
+      }
+    }
+
+    @media (max-width: 640px){
+      .floating-timer{
+        top:auto;
+        bottom:80px;
+        right:12px;
+        left:12px;
+        width:auto;
+        text-align:center;
+      }
+    }
+
+    /* FOCUS MODE: when test is running */
+    .app.is-running .content{
+      grid-template-columns: 1fr;
+      max-width:980px;
+      padding:18px;
+      margin:0 auto;
+    }
+
+    .app.is-running .sidebar{
+      display:none;
+    }
+
+    .app.is-running .main{
+      margin:0 auto;
+      width:100%;
+    }
+
+    @media (max-width: 980px){
+      .content{ grid-template-columns: 1fr; }
+      .brand{ min-width:unset; }
+      .subtitle{ max-width:38ch; }
+    }
+
+    /* Panels */
+    .panel{
+      background:var(--panel);
+      border:1px solid var(--stroke2);
+      border-radius: var(--r20);
+      box-shadow: var(--shadow2);
+      overflow:hidden;
+    }
+
+    .panel__head{
+      padding:14px 14px 10px 14px;
+      border-bottom:1px solid rgba(255,255,255,.06);
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+    }
+    .panel__title{
+      font-size:13px;
+      letter-spacing:.25px;
+      text-transform:uppercase;
+      color:var(--muted2);
+      margin:0;
+    }
+    .panel__body{ padding:14px; }
+
+    .sidebar{
+      position:sticky;
+      top:86px;
+    }
+    @media (max-width: 980px){
+      .sidebar{ position:relative; top:auto; }
+    }
+
+    .helper{
+      margin-top:10px;
+      padding:12px 12px;
+      border-radius: var(--r16);
+      border:1px dashed rgba(100,167,255,.25);
+      background:rgba(100,167,255,.06);
+      color:var(--muted);
+      font-size:13px;
+    }
+
+    /* Controls */
+    .field{
+      display:flex;
+      flex-direction:column;
+      gap:7px;
+      margin-bottom:12px;
+    }
+    .label{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:10px;
+      color:var(--muted);
+      font-size:13px;
+    }
+
+    select, input[type="text"]{
+      width:100%;
+      padding:11px 12px;
+      border-radius: 14px;
+      border:1px solid rgba(120,170,255,.22);
+      background: rgba(255,255,255,.035);
+      color: var(--text);
+      outline:none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    }
+
+    /* 2) Тёмный вид для самого select */
+    select{
+      color-scheme: dark;
+      background: rgba(255,255,255,.035);
+      color: #e9f0ff;
+      border: 1px solid rgba(120,170,255,.22);
+      border-radius: 14px;
+    }
+
+    /* 3) Попробовать принудительно покрасить option (работает не везде) */
+    select option{
+      background: #0d141d;
+      color: #e9f0ff;
+    }
+
+    /* Hide disabled options */
+    select option:disabled{
+      display: none;
+    }
+
+    select:focus, input[type="text"]:focus{ box-shadow: var(--ring); border-color: rgba(100,167,255,.45); }
+
+    .btnrow{
+      display:grid;
+      grid-template-columns: 1fr 1fr;
+      gap:10px;
+      margin-top:8px;
+    }
+    @media (max-width: 420px){
+      .btnrow{ grid-template-columns: 1fr; }
+    }
+
+    button{
+      appearance:none;
+      border:none;
+      cursor:pointer;
+      padding:11px 12px;
+      border-radius: 14px;
+      font-weight:700;
+      letter-spacing:.15px;
+      color:#fff;
+      background: linear-gradient(135deg, rgba(43,108,255,.95), rgba(100,167,255,.68));
+      box-shadow: 0 14px 36px rgba(43,108,255,.20);
+      transition: transform .08s ease, filter .15s ease, box-shadow .15s ease;
+    }
+    button:hover{ filter: brightness(1.05); }
+    button:active{ transform: translateY(1px); }
+    button:focus{ outline:none; box-shadow: var(--ring), 0 14px 36px rgba(43,108,255,.22); }
+    button:disabled{ opacity:.5; cursor:not-allowed; filter:saturate(.7); box-shadow:none; }
+
+    button.secondary{
+      background: rgba(255,255,255,.06);
+      border:1px solid rgba(120,170,255,.22);
+      color: var(--text);
+      box-shadow: none;
+    }
+    button.secondary:hover{ background: rgba(255,255,255,.08); }
+
+    /* Main quiz area */
+    .main{
+      display:flex;
+      flex-direction:column;
+      gap:14px;
+      min-width:0;
+    }
+
+    .hero{
+      padding:16px;
+      border-radius: var(--r20);
+      background:
+        radial-gradient(300px 200px at 12% 12%, rgba(100,167,255,.16), transparent 55%),
+        radial-gradient(280px 220px at 88% 18%, rgba(66,230,163,.10), transparent 55%),
+        rgba(255,255,255,.03);
+      border:1px solid rgba(255,255,255,.06);
+      box-shadow: var(--shadow2);
+    }
+    .hero__row{
+      display:flex;
+      flex-wrap:wrap;
+      gap:10px;
+      align-items:center;
+      justify-content:space-between;
+    }
+    .hero__left{ min-width:260px; }
+    .hero__title{
+      margin:0;
+      font-size:16px;
+      font-weight:800;
+    }
+    .hero__meta{
+      margin-top:6px;
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      align-items:center;
+    }
+
+    /* Keep existing ids used by app.js */
+    #timerMeta{ color: var(--muted); }
+    #meta{ color: var(--muted); }
+
+    /* Quiz grid (compat with your JS) */
+    .grid{
+      display:grid;
+      grid-template-columns: 1fr;
+      gap:12px;
+    }
+    @media (min-width: 980px){
+      .grid{ grid-template-columns: 1fr 1fr; }
+    }
+
+    /* Question cards (your app.js likely uses .card/.qtitle/.choice) */
+    .card{
+      background: var(--panel2);
+      border:1px solid rgba(255,255,255,.06);
+      border-radius: var(--r20);
+      padding:16px;
+      box-shadow: var(--shadow2);
+    }
+    .qtitle{
+      margin:0 0 10px 0;
+      font-weight:900;
+      letter-spacing:.1px;
+      font-size:14.5px;
+      line-height:1.35;
+    }
+
+    .qhead{
+      display:flex;
+      align-items:flex-start;
+      justify-content:space-between;
+      gap:12px;
+      margin-bottom:10px;
+    }
+
+    .flagToggle{
+      display:inline-flex;
+      align-items:center;
+      gap:8px;
+      padding:8px 10px;
+      border-radius:999px;
+      border:1px solid rgba(120,170,255,.22);
+      background: rgba(255,255,255,.03);
+      cursor:pointer;
+      user-select:none;
+      white-space:nowrap;
+      flex:0 0 auto;
+    }
+
+    .flagToggle:hover{
+      background: rgba(100,167,255,.06);
+      border-color: rgba(100,167,255,.35);
+    }
+
+    .flagInput{
+      position:absolute;
+      opacity:0;
+      pointer-events:none;
+    }
+
+    .flagIcon{
+      width:18px;
+      height:18px;
+      display:inline-block;
+      border-radius:6px;
+      border:1px solid rgba(120,170,255,.25);
+      background: rgba(255,255,255,.04);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+      position:relative;
+    }
+
+    /* "Флажок" рисуем псевдо-элементом */
+    .flagIcon::before{
+      content:"";
+      position:absolute;
+      left:6px; top:4px;
+      width:6px; height:10px;
+      border-left:2px solid rgba(255,255,255,.0);
+      border-right:2px solid rgba(255,255,255,.0);
+      border-top:2px solid rgba(255,255,255,.0);
+      border-bottom:2px solid rgba(255,255,255,.0);
+    }
+
+    /* когда отмечено — превращаем в 🚩 */
+    .flagInput:checked + .flagIcon{
+      border-color: rgba(255,107,122,.45);
+      background: rgba(255,107,122,.10);
+      box-shadow: 0 0 0 3px rgba(255,107,122,.14);
+    }
+
+    /* сам "флаг" (треугольник + палка) */
+    .flagInput:checked + .flagIcon::before{
+      content:"";
+      position:absolute;
+      left:7px; top:3px;
+      width:0; height:0;
+      border-top:6px solid transparent;
+      border-bottom:6px solid transparent;
+      border-left:8px solid rgba(255,107,122,.95); /* цвет флага */
+    }
+
+    .flagInput:checked + .flagIcon::after{
+      content:"";
+      position:absolute;
+      left:6px; top:3px;
+      width:2px; height:12px;
+      background: rgba(255,255,255,.85); /* "древко" */
+      border-radius:2px;
+    }
+
+    .flagText{
+      font-size:12.5px;
+      color:#a4b5d6;
+      font-weight:700;
+      letter-spacing:.1px;
+    }
+
+    .flagInput:checked ~ .flagText{
+      color: rgba(255,160,170,.95);
+    }
+
+    .choice{
+      display:flex;
+      gap:10px;
+      align-items:flex-start;
+      margin:8px 0;
+      padding:10px 10px;
+      border:1px solid rgba(120,170,255,.20);
+      border-radius: 16px;
+      background: rgba(255,255,255,.03);
+      transition: background .12s ease, border-color .12s ease, transform .08s ease;
+    }
+    .choice:hover{
+      background: rgba(100,167,255,.06);
+      border-color: rgba(100,167,255,.34);
+    }
+    .choice input{ margin-top:3px; accent-color: var(--accent2); }
+
+    .divider{ height:1px; background: rgba(255,255,255,.06); margin:14px 0; }
+
+    .result{ font-size:18px; font-weight:900; }
+    .ok{ color: var(--ok); }
+    .bad{ color: var(--bad); }
+
+    /* Output panel */
+    #out{ display:none; }
+
+    /* Bottom action bar */
+    .bottombar{
+      position:sticky;
+      bottom:0;
+      z-index:40;
+      padding:14px 18px 18px;
+      background: linear-gradient(180deg, transparent, rgba(7,11,18,.85) 25%, rgba(7,11,18,.92));
+      backdrop-filter: blur(14px);
+    }
+    .bottombar__inner{
+      max-width:1200px;
+      margin:0 auto;
+      display:flex;
+      gap:10px;
+      flex-wrap:wrap;
+      justify-content:space-between;
+      align-items:center;
+    }
+.actions{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
+}
+
+
+    /* Show actions only when test is running */
+    .app.is-running .actions{
+      display:flex;
+    }
+
+    /* Small quality-of-life */
+    .mono{
+      font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+      font-size:12.5px;
+      color:var(--muted);
+    }
+
+    /* Collapsible details/summary for compact errors display */
+    details{
+      margin:8px 0;
+    }
+
+    summary{
+      cursor:pointer;
+      user-select:none;
+      padding:10px 10px;
+      border-radius:12px;
+      background:rgba(255,255,255,.03);
+      border:1px solid rgba(120,170,255,.22);
+      transition: background .12s ease, border-color .12s ease;
+      font-weight:600;
+      color:var(--text);
+    }
+
+    summary:hover{
+      background:rgba(100,167,255,.06);
+      border-color:rgba(100,167,255,.34);
+    }
+
+    details[open] summary{
+      background:rgba(100,167,255,.08);
+      border-color:rgba(100,167,255,.35);
+      margin-bottom:8px;
+    }
+
+    details > :not(summary){
+      margin-left:10px;
+      padding:8px 0;
+    }
+    /* Вопрос попал в экран и ответа нет */
+.card.needs-answer{
+  border-color: rgba(255,107,122,.55) !important;
+  box-shadow: 0 0 0 3px rgba(255,107,122,.18), var(--shadow2);
+  background: linear-gradient(0deg, rgba(255,107,122,.06), rgba(255,107,122,0)) , var(--panel2);
+}
+
+/* маленькая метка "Пропущено" справа в заголовке */
+.qhead .skipBadge{
+  margin-left:auto;
+  padding:6px 10px;
+  border-radius:999px;
+  border:1px solid rgba(255,107,122,.45);
+  background: rgba(255,107,122,.10);
+  color: rgba(255,160,170,.95);
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.1px;
+}
+
+/* ===== Hardmode: Break & Fly Animation ===== */
+#activeQuestionCard.breakOut{
+  animation: breakFly .55s ease forwards;
+}
+
+@keyframes breakFly{
+  40%{ transform: rotate(-2deg) scale(1.02); }
+  100%{ transform: translateX(180px) rotate(12deg); opacity:0; }
+}
+
+/* ===== Hardmode: Fail Animation ===== */
+#activeQuestionCard.hardmode-fail{
+  animation: hardmodeFailShake .6s ease forwards;
+  border-color: rgba(255,107,122,.8) !important;
+  box-shadow: 0 0 0 4px rgba(255,107,122,.4), var(--shadow2) !important;
+  background: linear-gradient(0deg, rgba(255,107,122,.15), rgba(255,107,122,0)), var(--panel2) !important;
+}
+
+@keyframes hardmodeFailShake{
+  0%, 100%{ transform: translateX(0); }
+  10%, 30%, 50%, 70%, 90%{ transform: translateX(-8px); }
+  20%, 40%, 60%, 80%{ transform: translateX(8px); }
+}
+
+.hardmode-fail-overlay{
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(7,11,18,.85);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity .3s ease;
+}
+
+.hardmode-fail-overlay.show{
+  opacity: 1;
+}
+
+.hardmode-fail-content{
+  text-align: center;
+  padding: 32px 40px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(255,107,122,.15), rgba(255,107,122,.08));
+  border: 2px solid rgba(255,107,122,.5);
+  box-shadow: 0 20px 60px rgba(255,107,122,.3);
+  animation: failContentPop .4s ease forwards;
+}
+
+@keyframes failContentPop{
+  0%{ transform: scale(0.8); opacity: 0; }
+  50%{ transform: scale(1.05); }
+  100%{ transform: scale(1); opacity: 1; }
+}
+
+.hardmode-fail-icon{
+  font-size: 64px;
+  margin-bottom: 16px;
+  animation: failIconShake .5s ease;
+}
+
+@keyframes failIconShake{
+  0%, 100%{ transform: rotate(0deg); }
+  25%{ transform: rotate(-10deg); }
+  75%{ transform: rotate(10deg); }
+}
+
+.hardmode-fail-title{
+  font-size: 28px;
+  font-weight: 900;
+  color: #ff6b7a;
+  margin-bottom: 8px;
+  letter-spacing: .5px;
+}
+
+.hardmode-fail-sub{
+  font-size: 16px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+/* чтобы #quiz был той же ширины, что и .hero (т.е. на всю ширину main) */
+.app.is-running .grid{
+  max-width: none;   /* или max-width: 100%; */
+  margin: 0;         /* убираем центрирование узкого контейнера */
+}
+
+/* центрирование только в Hardmode */
+.app.hardmode-active .grid{
+  display: flex;
+  justify-content: center;
+}
+
+.timer-display{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  color:#e8eef6;
+  font-size:14px;
+  font-weight:600;
+}
+
+.timer-display__label{
+  color:#9db0c9;
+  font-size:13px;
+}
+
+.achv-toast{
+  position: fixed;
+  left: 50%;
+  bottom: 16px;
+  transform: translate(-50%, 12px);
+  z-index: 999;
+
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid #243246;
+  background: #121a24;
+  color: #e8eef6;
+  box-shadow: 0 14px 40px rgba(0,0,0,.45);
+
+  opacity: 0;
+  transition: .35s ease;
+  max-width: min(520px, calc(100vw - 24px));
+}
+
+.achv-toast.show{
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.achv-badge{
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-weight: 900;
+  letter-spacing: .5px;
+
+  border: 1px solid rgba(100,167,255,.45);
+  background:
+    radial-gradient(18px 18px at 30% 30%, rgba(255,255,255,.14), transparent 60%),
+    linear-gradient(135deg, rgba(43,108,255,.95), rgba(100,167,255,.55));
+}
+
+.achv-title{ font-weight: 900; }
+.achv-sub{ color: #9db0c9; font-size: 13px; margin-top: 2px; }
+
+/* Мигание карточки при истечении времени */
+#activeQuestionCard.time-low{
+  animation: timeLowBlink .35s ease-in-out infinite;
+}
+
+@keyframes timeLowBlink{
+  0%,100%{ filter: none; }
+  50%{ filter: brightness(1.25); }
+}
