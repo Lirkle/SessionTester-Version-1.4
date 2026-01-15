@@ -794,22 +794,54 @@ function resolveBankKey(selectedName){
 
 function setBank(name) {
   const key = resolveBankKey(name);
-  const bank = window.QUIZ_BANKS[key];
-  if (!bank) {
-    alert("Банк не найден: " + key);
-    return;
-  }
 
-  // Устанавливаем данные банка
-  RAW_BANK = bank.raw;
-  ANSWER_TEXT = bank.answers;
-  ALL = parseBank(RAW_BANK, ANSWER_TEXT);
+  // Специальный комбинированный банк: Газиз + Кундыз
+  if (key === "gaziz_kundyz") {
+    const gazizBank = window.QUIZ_BANKS.gaziz;
+    const kundyzBank = window.QUIZ_BANKS.kundyz;
+
+    if (!gazizBank || !kundyzBank) {
+      alert("Не найдены банки Газиз или Кундыз");
+      return;
+    }
+
+    const gazizItems = parseBank(gazizBank.raw, gazizBank.answers);
+    const kundyzItems = parseBank(kundyzBank.raw, kundyzBank.answers);
+
+    // Перенумерация, чтобы не пересекались номера вопросов
+    const gazizRenumbered = gazizItems.map((item, idx) => ({
+      ...item,
+      n: idx + 1
+    }));
+    const offset = gazizRenumbered.length;
+    const kundyzRenumbered = kundyzItems.map((item, idx) => ({
+      ...item,
+      n: offset + idx + 1
+    }));
+
+    RAW_BANK = "";
+    ANSWER_TEXT = [];
+    ALL = [...gazizRenumbered, ...kundyzRenumbered];
+
+  } else {
+    const bank = window.QUIZ_BANKS[key];
+    if (!bank) {
+      alert("Банк не найден: " + key);
+      return;
+    }
+
+    // Устанавливаем данные банка
+    RAW_BANK = bank.raw;
+    ANSWER_TEXT = bank.answers;
+    ALL = parseBank(RAW_BANK, ANSWER_TEXT);
+  }
 
   // Обновляем максимальное количество вопросов в зависимости от банка
   const maxByBank = {
     gaziz: 150,
     azamat: 210,
-    kundyz: 140
+    kundyz: 140,
+    gaziz_kundyz: 290
   };
   const maxSize = maxByBank[key] || 150;
   if (maxTestSizeDisplay) maxTestSizeDisplay.textContent = maxSize;
