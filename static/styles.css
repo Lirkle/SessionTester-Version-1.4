@@ -381,6 +381,134 @@
       font-size:13px;
     }
 
+    /* Hardmode toggle */
+    .hardmode-toggle{
+      display:block;
+      cursor:pointer;
+      user-select:none;
+    }
+
+    .hardmode-toggle input{
+      position:absolute;
+      opacity:0;
+      pointer-events:none;
+    }
+
+    .hardmode-toggle__pill{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      padding:10px 12px;
+      border-radius:16px;
+      border:1px solid rgba(120,170,255,.25);
+      background:linear-gradient(135deg, rgba(12,18,28,.95), rgba(20,32,48,.95));
+      box-shadow:0 10px 26px rgba(0,0,0,.45);
+      transition:
+        border-color .16s ease,
+        box-shadow .16s ease,
+        background .16s ease,
+        transform .08s ease;
+      position:relative;
+      padding-right:64px; /* справа место под переключатель */
+    }
+
+    .hardmode-toggle__icon{
+      width:30px;
+      height:30px;
+      border-radius:999px;
+      background:
+        radial-gradient(14px 14px at 30% 25%, rgba(255,255,255,.24), transparent 60%),
+        conic-gradient(from 210deg, #ff6b7a, #ffc06b, #64a7ff, #ff6b7a);
+      position:relative;
+      box-shadow:0 8px 22px rgba(0,0,0,.5);
+      flex:0 0 auto;
+    }
+
+    .hardmode-toggle__icon::before{
+      content:"H";
+      position:absolute;
+      inset:0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-weight:900;
+      font-size:14px;
+      color:#05070b;
+      text-shadow:0 0 8px rgba(255,255,255,.4);
+    }
+
+    .hardmode-toggle__text{
+      display:flex;
+      flex-direction:column;
+      gap:2px;
+      min-width:0;
+    }
+
+    .hardmode-toggle__title{
+      font-size:13px;
+      font-weight:800;
+      letter-spacing:.3px;
+      text-transform:uppercase;
+      color:#e9f0ff;
+    }
+
+    .hardmode-toggle__sub{
+      font-size:12px;
+      color:var(--muted2);
+    }
+
+    .hardmode-toggle__pill::after{
+      /* дорожка переключателя */
+      content:"";
+      position:absolute;
+      right:16px;
+      top:50%;
+      transform:translateY(-50%);
+      width:32px;
+      height:18px;
+      border-radius:999px;
+      background:rgba(255,255,255,.05);
+      border:1px solid rgba(120,170,255,.4);
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.1);
+      z-index:1;
+    }
+
+    /* ползунок */
+    .hardmode-toggle__pill::before{
+      content:"";
+      position:absolute;
+      top:40%;
+      right:18px; /* выключен — у правого края дорожки */
+      width:14px;
+      height:14px;
+      border-radius:999px;
+      background:rgba(120,170,255,.9);
+      box-shadow:0 0 0 0 rgba(120,170,255,.8);
+      transition:
+        right .16s ease,
+        background .16s ease,
+        box-shadow .16s ease;
+      z-index:2;
+      transform:translateY(-1px);
+    }
+
+    .hardmode-toggle input:checked + .hardmode-toggle__pill{
+      border-color:rgba(255,107,122,.8);
+      background:linear-gradient(135deg, rgba(36,13,22,.98), rgba(30,10,20,.98));
+      box-shadow:0 14px 32px rgba(255,107,122,.35);
+      transform:translateY(-1px);
+    }
+
+    .hardmode-toggle input:checked + .hardmode-toggle__pill::before{
+      right:34px; /* включен — смещаем внутрь дорожки к левому краю */
+      background:#ff6b7a;
+      box-shadow:0 0 0 4px rgba(255,107,122,.3);
+    }
+
+    .hardmode-toggle input:checked + .hardmode-toggle__pill .hardmode-toggle__sub{
+      color:#ffc6d0;
+    }
+
     select, input[type="text"]{
       width:100%;
       padding:11px 12px;
