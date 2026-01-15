@@ -114,7 +114,7 @@
       width:40px;height:40px;
       border-radius:14px;
       background:
-  url(/static/img/icon.png) center / contain no-repeat,
+  url(static/img/icon.png) center / contain no-repeat,
   radial-gradient(18px 18px at 30% 30%, rgba(255, 255, 255, .20), transparent 60%);
       box-shadow: 0 14px 40px rgba(43,108,255,.18);
       border:1px solid rgba(255,255,255,.12);
@@ -187,25 +187,40 @@
     }
     #statusPill .dot{ background: var(--warn); box-shadow: 0 0 0 3px rgba(255,192,107,.18); }
     
-    /* Градиент только на тексте + / ++ / +++ */
-    .achievement-text{
-      display:inline-block;
-      font-weight:800;
-      letter-spacing:1.4px;
-      font-size:13px;
-      text-transform:uppercase;
-      background: linear-gradient(120deg, #cd7f32, #f5c18b);
-      -webkit-background-clip:text;
-      background-clip:text;
-      -webkit-text-fill-color:transparent;
-      color:transparent;
-    }
-    .achievement-text.tier-2{
-      background: linear-gradient(120deg, #c0c0c0, #f5f5f5);
-    }
-    .achievement-text.tier-3{
-      background: linear-gradient(120deg, #ffd700, #fff2a8);
-    }
+.achievement-text{
+  display:inline-block;
+  font-weight:800;
+  letter-spacing:1.4px;
+  font-size:13px;
+  text-transform:uppercase;
+
+  background-image: linear-gradient(120deg, #cd7f32, #f5c18b, #cd7f32);
+  background-size: 220% 220%;
+  background-position: 0% 50%;
+
+  -webkit-background-clip:text;
+  background-clip:text;
+  color:transparent;
+  -webkit-text-fill-color:transparent;
+
+  animation: achvGradient 2.2s ease-in-out infinite;
+}
+
+.achievement-text.tier-2{
+  background-image: linear-gradient(120deg, #c9C9C9, #ffffff, #494949);
+}
+
+.achievement-text.tier-3{
+  background-image: linear-gradient(120deg, #ffd700, #fff2a8, #ffd700);
+}
+
+@keyframes achvGradient{
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+
 
     /* Кубок вместо точки в достижении */
     .achv-cup{

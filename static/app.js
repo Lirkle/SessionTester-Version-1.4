@@ -585,9 +585,10 @@ if (hardModeToggle){
 
 // ===== Hardmode music =====
 const HARDMODE_PLAYLIST = [
-  "/static/music/01.mp3",
-  "/static/music/02.mp3",
-  "/static/music/03.mp3",
+  "static/music/01.mp3",
+  "static/music/02.mp3",
+  "static/music/03.mp3",
+  "static/music/04.mp3",
 ];
 
 let hmAudio = null;
