@@ -1111,7 +1111,6 @@ function showAchievementToast(tier, questionsCount){
   }, 4500);
 }
 function resolveBankKey(selectedName){
-  if (hardMode && selectedName === "azamat") return "azamat";
   return selectedName;
 }
 
@@ -1162,7 +1161,6 @@ function setBank(name) {
   // Обновляем максимальное количество вопросов в зависимости от банка
   const maxByBank = {
     gaziz: 150,
-    azamat: 210,
     kundyz: 140,
     gaziz_kundyz: 290
   };
@@ -1606,7 +1604,6 @@ function renderAnalytics(){
   parts.push(`<div class="analytics-filters__row">`);
   parts.push(`<label class="analytics-filter"><span>Банк:</span><select id="analyticsBankSelect" class="analytics-filter__input">`);
   parts.push(`<option value="gaziz" ${currentBankKey === "gaziz" ? "selected" : ""}>Газиз</option>`);
-  parts.push(`<option value="azamat" ${currentBankKey === "azamat" ? "selected" : ""}>Азамат</option>`);
   parts.push(`<option value="kundyz" ${currentBankKey === "kundyz" ? "selected" : ""}>Кундыз</option>`);
   parts.push(`<option value="gaziz_kundyz" ${currentBankKey === "gaziz_kundyz" ? "selected" : ""}>Газиз + Кундыз</option>`);
   parts.push(`</select></label>`);
@@ -1722,7 +1719,7 @@ function renderAnalytics(){
       const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
       const elapsedTime = fmt(s.elapsedMs);
       const modeText = s.mode === "mcq" ? "A–E" : "Текст";
-      const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "azamat" ? "Азамат" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+      const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
       const hardmodeMark = s.hardMode ? "⚡" : "—";
       const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
       parts.push(`<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`);
@@ -1737,7 +1734,7 @@ function renderAnalytics(){
         const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
         const elapsedTime = fmt(s.elapsedMs);
         const modeText = s.mode === "mcq" ? "A–E" : "Текст";
-        const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "azamat" ? "Азамат" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+        const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
         const hardmodeMark = s.hardMode ? "⚡" : "—";
         const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
         parts.push(`<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`);
@@ -1789,7 +1786,7 @@ function renderAnalytics(){
         const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
         const elapsedTime = fmt(s.elapsedMs);
         const modeText = s.mode === "mcq" ? "A–E" : "Текст";
-        const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "azamat" ? "Азамат" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+        const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
         const hardmodeMark = s.hardMode ? "⚡" : "—";
         const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
         sessionsHtml += `<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`;
@@ -1804,7 +1801,7 @@ function renderAnalytics(){
           const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
           const elapsedTime = fmt(s.elapsedMs);
           const modeText = s.mode === "mcq" ? "A–E" : "Текст";
-          const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "azamat" ? "Азамат" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+          const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
           const hardmodeMark = s.hardMode ? "⚡" : "—";
           const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
           sessionsHtml += `<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`;
