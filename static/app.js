@@ -92,6 +92,7 @@ const elQuiz = document.getElementById("quiz");
 const elOut = document.getElementById("out");
 const startBtn = document.getElementById("startBtn");
 const finishBtn = document.getElementById("finishBtn");
+const abortBtn = document.getElementById("abortBtn");
 const learnBtn = document.getElementById("learnBtn");
 const backBtn = document.getElementById("backBtn");
 const hardBtn = document.getElementById("hardBtn");
@@ -303,6 +304,70 @@ function setupSkipHighlighter(){
   cards.forEach(c => skipObserver.observe(c));
 }
 
+function isAnswered(item){
+  const v = answers.get(item.id);
+
+  if (mode === "mcq"){
+    return (typeof v === "number" && v >= 0);
+  } else {
+    return String(v ?? "").trim().length > 0;
+  }
+}
+
+function findFirstUnanswered(){
+  for (let i = 0; i < TEST.length; i++){
+    if (!isAnswered(TEST[i])) return i;
+  }
+  return -1;
+}
+
+function scrollToQuestion(idx){
+  const item = TEST[idx];
+  if (!item) return;
+
+  // если hardMode — там один вопрос на экране, просто подсветим
+  if (hardMode){
+    const card = document.getElementById("activeQuestionCard");
+    if (card){
+      card.classList.add("needs-answer");
+      card.scrollIntoView({ behavior:"smooth", block:"center" });
+    }
+    return;
+  }
+
+  const card = elQuiz.querySelector(`.card[data-qid="${item.id}"]`);
+  if (card){
+    card.classList.add("needs-answer");
+    card.scrollIntoView({ behavior:"smooth", block:"center" });
+  }
+}
+
+function showFinishBlockedModal(idx){
+  // если уже есть — не плодим
+  if (document.getElementById("finishBlockedModal")) return;
+
+  const el = document.createElement("div");
+  el.id = "finishBlockedModal";
+  el.className = "hardmode-fail-overlay show"; // используем твой готовый оверлей-стиль
+  el.innerHTML = `
+    <div class="hardmode-fail-content">
+      <div class="hardmode-fail-icon">⚠️</div>
+      <div class="hardmode-fail-title">Есть пропущенные вопросы</div>
+      <div class="hardmode-fail-sub">Нужно ответить, иначе завершить нельзя</div>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:16px">
+        <button id="goMissBtn">Перейти</button>
+        <button class="secondary" id="cancelMissBtn">Отмена</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(el);
+
+  document.getElementById("goMissBtn").onclick = () => {
+    scrollToQuestion(idx);
+    el.remove();
+  };
+  document.getElementById("cancelMissBtn").onclick = () => el.remove();
+}
 
 function renderTest(){
   elQuiz.innerHTML = "";
@@ -317,6 +382,7 @@ function renderTest(){
   for (const item of itemsToShow){
     const card = document.createElement("div");
     card.className = "card";
+    card.dataset.qid = item.id;
     if (hardMode) card.id = "activeQuestionCard";
 
     // Создаём структуру qhead с флажком
@@ -538,6 +604,7 @@ if (hardModePassed) {
   learnBtn.disabled = true;
   startBtn.disabled = false;
   restartBtn.disabled = false;
+  if (abortBtn) abortBtn.disabled = true;
   setRunning(false);
   
   // Сохраняем обновленные сложные вопросы и статистику
@@ -874,6 +941,7 @@ function setBank(name) {
   finishBtn.disabled = true;
   learnBtn.disabled = true;
   if (hardBtn) hardBtn.disabled = true;
+  if (abortBtn) abortBtn.disabled = true;
 
   // Сбрасываем информационные поля
   statusPill.textContent = "Тест не запущен";
@@ -914,6 +982,7 @@ startBtn.addEventListener("click", () => {
   startBtn.disabled = true;
   learnBtn.disabled = hardMode;  // недоступна в hardmode
   restartBtn.disabled = true;
+  if (abortBtn) abortBtn.disabled = false;
 });
 
 restartBtn.addEventListener("click", () => {
@@ -926,9 +995,51 @@ restartBtn.addEventListener("click", () => {
   startBtn.disabled = true;
   learnBtn.disabled = hardMode;  // недоступна в hardmode
   restartBtn.disabled = true;
+  if (abortBtn) abortBtn.disabled = false;
 });
 
-finishBtn.addEventListener("click", finish);
+function abortTest(){
+  stopQuestionTimer();
+  stopHardmodeMusic();
+  stopTimer();
+
+  TEST = [];
+  answers.clear();
+  curIdx = 0;
+  elQuiz.innerHTML = "";
+  elOut.style.display = "none";
+  elOut.innerHTML = "";
+
+  statusPill.textContent = "Тест прерван";
+  meta.textContent = "";
+
+  startBtn.disabled = false;
+  restartBtn.disabled = true;
+  finishBtn.disabled = true;
+  learnBtn.disabled = true;
+  if (abortBtn) abortBtn.disabled = true;
+
+  setRunning(false);
+}
+
+if (abortBtn){
+  abortBtn.addEventListener("click", () => {
+    if (confirm("Прервать тест и выйти? Результат не сохранится.")){
+      abortTest();
+    }
+  });
+}
+
+finishBtn.addEventListener("click", () => {
+  const idx = findFirstUnanswered();
+  if (idx !== -1){
+    // не даём завершить
+    scrollToQuestion(idx);
+    showFinishBlockedModal(idx); // добавим ниже
+    return;
+  }
+  finish();
+});
 
 clearFlagsBtn.addEventListener("click", clearAllFlags);
 
@@ -979,6 +1090,7 @@ function showAnswers(){
   learnBtn.disabled = true;
   backBtn.disabled = false;
   restartBtn.disabled = true;
+  if (abortBtn) abortBtn.disabled = true;
 }
 
 learnBtn.addEventListener("click", showAnswers);
@@ -991,6 +1103,7 @@ function backToTest(){
   learnBtn.disabled = false;
   backBtn.disabled = true;
   restartBtn.disabled = false;
+  if (abortBtn) abortBtn.disabled = false;
 }
 
 backBtn.addEventListener("click", backToTest);
@@ -1003,6 +1116,7 @@ hardBtn.addEventListener("click", () => {
   learnBtn.disabled = false;
   restartBtn.disabled = true;
   hardBtn.disabled = true;
+  if (abortBtn) abortBtn.disabled = false;
 });
 
 const TIME_EXP_EVERY_SECONDS = 600; // 10 минут
