@@ -88,11 +88,14 @@ let ALL = parseBank(RAW_BANK, ANSWER_TEXT);
 /** ========= НАСТРОЙКИ ========= */
 const LETTERS = ["A","B","C","D","E"];
 const DEFAULT_BANK_KEY = "python_devops_networks_no_guess";
+const SIMPLE_BANK_KEY = "python_devops_networks_hard";
 const BANK_LABELS = {
-  [DEFAULT_BANK_KEY]: "Gaziz 2.0"
+  [DEFAULT_BANK_KEY]: "Gaziz 2.0",
+  [SIMPLE_BANK_KEY]: "Gaziz 2.0 Simple"
 };
 const BANK_MAX_SIZES = {
-  [DEFAULT_BANK_KEY]: 350
+  [DEFAULT_BANK_KEY]: 350,
+  [SIMPLE_BANK_KEY]: 350
 };
 
 const elQuiz = document.getElementById("quiz");
@@ -123,6 +126,865 @@ const quickHardBtn = document.getElementById("quickHardBtn");
 
 const timerText = document.getElementById("timerText");
 const appEl = document.querySelector(".app");
+const translateBtn = document.getElementById("translateBtn");
+
+let translateRu = localStorage.getItem("quiz_translate_ru") === "1";
+const RU_TRANSLATION_CACHE_KEY = "quiz_ru_translation_cache_v1";
+let ruTranslationCache = {};
+let ruTranslationSaveTimer = null;
+let ruTranslationRefreshTimer = null;
+const ruTranslationPending = new Set();
+const ruTranslationFailed = new Set();
+
+try {
+  ruTranslationCache = JSON.parse(localStorage.getItem(RU_TRANSLATION_CACHE_KEY) || "{}") || {};
+} catch {
+  ruTranslationCache = {};
+}
+
+const RU_TOPICS = {
+  "python syntax and runtime": "синтаксис и выполнение Python",
+  "python data structures": "структуры данных Python",
+  "python control flow and functions": "управление потоком и функции Python",
+  "python oop, files, and errors": "ООП, файлы и ошибки Python",
+  "devops practices": "практики DevOps",
+  "linux and source control": "Linux и контроль версий",
+  "containers and kubernetes": "контейнеры и Kubernetes",
+  "cloud and system design": "облака и системный дизайн",
+  "network layers and models": "сетевые уровни и модели",
+  "addressing and subnetting": "адресация и подсети",
+  "network protocols": "сетевые протоколы",
+  "switching, security, and performance": "коммутация, безопасность и производительность"
+};
+
+const RU_PHRASES = [
+  ["Which statement most accurately describes", "Какое утверждение наиболее точно описывает"],
+  ["Which statement about", "Какое утверждение о"],
+  ["is technically correct", "технически верно"],
+  ["is correct", "верно"],
+  ["What exactly is printed by", "Что именно напечатает"],
+  ["What is printed by", "Что напечатает"],
+  ["What is printed after", "Что будет напечатано после"],
+  ["What is the result of", "Каков результат"],
+  ["What is the effect of", "Какой эффект у"],
+  ["What is the main trap in", "В чем главная ловушка в"],
+  ["What is true about", "Что верно о"],
+  ["What is the safest interpretation of", "Как безопаснее всего понимать"],
+  ["What is the role of", "Какова роль"],
+  ["Which statement best separates", "Какое утверждение лучше всего разделяет"],
+  ["Which statement best describes the difference between", "Какое утверждение лучше всего описывает разницу между"],
+  ["Which answer best distinguishes", "Какой ответ лучше всего отличает"],
+  ["Which answer best explains why", "Какой ответ лучше всего объясняет, почему"],
+  ["What is a practical difference between", "В чем практическая разница между"],
+  ["What is the most likely effect of", "Каков наиболее вероятный эффект"],
+  ["What is the most accurate reason", "Какова самая точная причина"],
+  ["What is the most direct fix", "Какое самое прямое исправление"],
+  ["Which signal best helps trace", "Какой сигнал лучше всего помогает отследить"],
+  ["in Python", "в Python"],
+  ["in DevOps practices", "в практиках DevOps"],
+  ["in Linux and source control", "в Linux и контроле версий"],
+  ["in containers and Kubernetes", "в контейнерах и Kubernetes"],
+  ["in cloud and system design", "в облаках и системном дизайне"],
+  ["in network layers and models", "в сетевых уровнях и моделях"],
+  ["in addressing and subnetting", "в адресации и подсетях"],
+  ["in network protocols", "в сетевых протоколах"],
+  ["in switching, security, and performance", "в коммутации, безопасности и производительности"],
+  ["It immediately returns", "Сразу возвращает"],
+  ["It writes", "Записывает"],
+  ["It serializes", "Сериализует"],
+  ["It sends", "Отправляет"],
+  ["It builds", "Собирает"],
+  ["It reads", "Читает"],
+  ["It returns", "Возвращает"],
+  ["It creates", "Создает"],
+  ["It checks", "Проверяет"],
+  ["It represents", "Представляет"],
+  ["It determines", "Определяет"],
+  ["It binds", "Привязывает"],
+  ["It stores", "Хранит"],
+  ["It pauses", "Приостанавливает"],
+  ["It exits", "Выходит"],
+  ["It skips", "Пропускает"],
+  ["It accepts", "Принимает"],
+  ["It applies", "Применяет"],
+  ["name binding", "привязку имени"],
+  ["import statement", "оператор import"],
+  ["global statement", "оператор global"],
+  ["nonlocal statement", "оператор nonlocal"],
+  ["identity comparison", "сравнение идентичности"],
+  ["equality comparison", "сравнение равенства"],
+  ["PEP 8 naming", "именование по PEP 8"],
+  ["list comprehension", "генератор списка"],
+  ["generator expression", "генераторное выражение"],
+  ["function definition", "определение функции"],
+  ["return statement", "оператор return"],
+  ["yield statement", "оператор yield"],
+  ["lambda expression", "lambda-выражение"],
+  ["default argument", "аргумент по умолчанию"],
+  ["higher-order function", "функция высшего порядка"],
+  ["instance attribute", "атрибут экземпляра"],
+  ["class attribute", "атрибут класса"],
+  ["try / except", "try / except"],
+  ["finally block", "блок finally"],
+  ["raise statement", "оператор raise"],
+  ["context manager", "контекстный менеджер"],
+  ["local scope", "локальную область видимости"],
+  ["docstring", "docstring"],
+  ["truthiness", "истинность"],
+  ["indentation", "отступы"],
+  ["while hiding details that callers do not need", "скрывая детали, которые вызывающему коду не нужны"],
+  ["Lets one class reuse and specialize behavior from another class", "Позволяет одному классу переиспользовать и уточнять поведение другого класса"],
+  ["Stores data on the class and is shared through instances unless shadowed", "Хранит данные на классе и разделяется экземплярами, пока не переопределено"],
+  ["Defines a template for creating objects with shared attributes and behavior", "Определяет шаблон для создания объектов с общими атрибутами и поведением"],
+  ["Stores data on a particular object rather than on the class itself", "Хранит данные на конкретном объекте, а не на самом классе"],
+  ["Defines setup and cleanup behavior around a block, often used with with", "Определяет подготовку и очистку вокруг блока, часто используется с with"],
+  ["Initializes a newly created instance after it has been allocated", "Инициализирует новый экземпляр после его выделения"],
+  ["Groups state and related behavior while controlling how outside code interacts with it", "Группирует состояние и связанное поведение, контролируя взаимодействие внешнего кода"],
+  ["Refers to the current instance passed explicitly as the first method parameter by convention", "Ссылается на текущий экземпляр, который по соглашению передается первым параметром метода"],
+  ["Handles selected runtime exceptions so the program can recover or respond", "Обрабатывает выбранные исключения времени выполнения, чтобы программа могла восстановиться или ответить"],
+  ["Belongs in a class namespace but receives neither instance nor class automatically", "Находится в пространстве имен класса, но автоматически не получает ни экземпляр, ни класс"],
+  ["Allows different object types to be used through a shared interface or method name", "Позволяет разным типам объектов использоваться через общий интерфейс или имя метода"],
+  ["Receives the class as its first argument and is often used for alternate constructors", "Получает класс первым аргументом и часто используется для альтернативных конструкторов"],
+  ["Provides operating-system interfaces such as environment variables and process-related utilities", "Предоставляет интерфейсы ОС: переменные окружения и утилиты, связанные с процессами"],
+  ["Exposes method-controlled access through attribute-style syntax", "Предоставляет доступ, управляемый методом, через синтаксис атрибута"],
+  ["Runs cleanup code whether an exception was raised or not", "Запускает код очистки независимо от того, было исключение или нет"],
+  ["Stores ordered mutable items and supports in-place changes such as append and item assignment", "Хранит упорядоченные изменяемые элементы и поддерживает изменения на месте, например append и присваивание по индексу"],
+  ["Copies the outer container while keeping references to nested mutable objects", "Копирует внешний контейнер, сохраняя ссылки на вложенные изменяемые объекты"],
+  ["Stores unique hashable elements without a meaningful positional index", "Хранит уникальные хешируемые элементы без значимого позиционного индекса"],
+  ["Recursively copies nested objects so inner mutable structures are duplicated when possible", "Рекурсивно копирует вложенные объекты, чтобы внутренние изменяемые структуры тоже дублировались, когда возможно"],
+  ["Selects a subsequence using start, stop, and step without including the stop index", "Выбирает подпоследовательность через start, stop и step, не включая конечный индекс"],
+  ["Stores ordered items in an immutable container, though contained mutable objects may still change", "Хранит упорядоченные элементы в неизменяемом контейнере, хотя вложенные изменяемые объекты могут меняться"],
+  ["Returns a value for a key or a default without raising KeyError when the key is absent", "Возвращает значение по ключу или значение по умолчанию без KeyError, если ключ отсутствует"],
+  ["Produces values one at a time through the iterator protocol until exhausted", "Выдает значения по одному через протокол итератора, пока они не закончатся"],
+  ["Maps hashable keys to values and preserves insertion order in modern Python", "Сопоставляет хешируемые ключи со значениями и сохраняет порядок вставки в современном Python"],
+  ["Prevents changing the object itself after creation, though names can be rebound", "Запрещает менять сам объект после создания, хотя имена можно перепривязать"],
+  ["Builds a list from an iterable using compact loop and optional filter syntax", "Создает список из итерируемого объекта через компактный цикл и необязательный фильтр"],
+  ["Adds one object as a single new element at the end of a list", "Добавляет один объект как новый элемент в конец списка"],
+  ["Retrieves an item by position or key using square brackets", "Получает элемент по позиции или ключу через квадратные скобки"],
+  ["Stores immutable text as a sequence of Unicode characters", "Хранит неизменяемый текст как последовательность Unicode-символов"],
+  ["Creates a lazy iterator using comprehension-like syntax without building a list immediately", "Создает ленивый итератор через синтаксис, похожий на comprehension, без немедленного создания списка"],
+  ["Allows an object to be used as a dictionary key or set element when its hash is stable", "Позволяет использовать объект как ключ словаря или элемент множества, если его хеш стабилен"],
+  ["Combines elements from sets while keeping only unique values", "Объединяет элементы множеств, оставляя только уникальные значения"],
+  ["Can return an iterator, allowing it to be used in a for loop", "Может возвращать итератор, позволяя использовать объект в цикле for"],
+  ["Adds each item from an iterable to the end of a list", "Добавляет каждый элемент итерируемого объекта в конец списка"],
+  ["Keeps only elements that are present in both sets", "Оставляет только элементы, которые есть в обоих множествах"],
+  ["Defines ordered automated stages such as build, test, scan, package, and deploy", "Определяет упорядоченные автоматические этапы: сборка, тест, сканирование, упаковка и деплой"],
+  ["Keeps changes in a releasable state while requiring a deliberate production release step", "Держит изменения готовыми к релизу, но требует отдельного шага выпуска в продакшен"],
+  ["Separates deploying code from enabling behavior for selected users or environments", "Отделяет деплой кода от включения поведения для выбранных пользователей или окружений"],
+  ["Manages infrastructure definitions as versioned files reviewed like application code", "Управляет описаниями инфраструктуры как версионированными файлами, которые ревьюятся как код приложения"],
+  ["Switches traffic between two production-ready environments to reduce cutover risk", "Переключает трафик между двумя готовыми продакшен-окружениями, снижая риск переключения"],
+  ["Prioritizes or manages traffic to meet performance requirements", "Приоритизирует или управляет трафиком, чтобы выполнить требования производительности"],
+  ["Allows or blocks traffic according to configured security rules", "Разрешает или блокирует трафик согласно настроенным правилам безопасности"],
+  ["Separates network control logic from packet forwarding hardware", "Отделяет логику управления сетью от оборудования пересылки пакетов"],
+  ["Runs network functions as software rather than dedicated appliances", "Запускает сетевые функции как программное обеспечение вместо выделенных устройств"],
+  ["Provides wireless local-area networking based on IEEE 802.11 standards", "Предоставляет беспроводную локальную сеть на основе стандартов IEEE 802.11"],
+  ["Spreads client traffic across multiple servers to improve capacity or availability", "Распределяет клиентский трафик по нескольким серверам, чтобы улучшить емкость или доступность"],
+  ["Forwards frames based on learned MAC address tables", "Пересылает кадры на основе изученных таблиц MAC-адресов"],
+  ["Forwards packets between IP networks using routing decisions", "Пересылает пакеты между IP-сетями на основе решений маршрутизации"],
+  ["Repeats incoming bits out all ports without learning MAC addresses", "Повторяет входящие биты на все порты, не изучая MAC-адреса"],
+  ["Prevents a fast sender from overwhelming a slower receiver", "Не дает быстрому отправителю перегрузить более медленного получателя"],
+  ["Detects suspicious activity and alerts without necessarily blocking it", "Обнаруживает подозрительную активность и отправляет оповещения, не обязательно блокируя ее"],
+  ["Detects suspicious activity and can actively block or prevent it", "Обнаруживает подозрительную активность и может активно блокировать или предотвращать ее"],
+  ["Chooses among branches by testing conditions in order until one branch is selected", "Выбирает одну из веток, проверяя условия по порядку, пока одна ветка не будет выбрана"],
+  ["Combines iterable items into one accumulated result using a two-argument callable", "Объединяет элементы итерируемого объекта в один накопленный результат через функцию с двумя аргументами"],
+  ["Supplies a value used when a caller omits an argument, evaluated at function definition time", "Задает значение, используемое при пропущенном аргументе; вычисляется при определении функции"],
+  ["Accepts a function as an argument or returns a function as a result", "Принимает функцию как аргумент или возвращает функцию как результат"],
+  ["Skips the rest of the current loop iteration and moves to the next iteration", "Пропускает остаток текущей итерации цикла и переходит к следующей"],
+  ["Remembers variables from an enclosing scope after that scope has finished executing", "Помнит переменные из внешней области видимости после завершения этой области"],
+  ["Iterates over values produced by an iterable rather than counting by default", "Перебирает значения, создаваемые итерируемым объектом, а не считает по умолчанию"],
+  ["Creates a callable object and binds it to a name using def", "Создает вызываемый объект и привязывает его к имени через def"],
+  ["Creates a small anonymous function from a single expression", "Создает небольшую анонимную функцию из одного выражения"],
+  ["Repeats a block while a condition remains truthy", "Повторяет блок, пока условие остается истинным"],
+  ["Collects extra keyword arguments into a dictionary inside a function", "Собирает дополнительные именованные аргументы в словарь внутри функции"],
+  ["Terminates the nearest enclosing loop immediately", "Немедленно завершает ближайший внешний цикл"],
+  ["Pauses a generator function and produces the next value lazily", "Приостанавливает функцию-генератор и лениво выдает следующее значение"],
+  ["Solves a problem by having a function call itself with a smaller or simpler case", "Решает задачу тем, что функция вызывает саму себя с меньшим или более простым случаем"],
+  ["Wraps or replaces a function or class at definition time using callable syntax", "Оборачивает или заменяет функцию либо класс при определении через вызываемый синтаксис"],
+  ["Keeps items from an iterable for which a callable returns a truthy value", "Оставляет элементы итерируемого объекта, для которых функция возвращает истинное значение"],
+  ["Acts as a syntactic placeholder that performs no operation", "Работает как синтаксическая заглушка, которая ничего не делает"],
+  ["Collects extra positional arguments into a tuple inside a function", "Собирает дополнительные позиционные аргументы в кортеж внутри функции"],
+  ["Exits a function call and sends a value back to the caller", "Выходит из вызова функции и возвращает значение вызывающему коду"],
+  ["Applies a callable to items from one or more iterables and returns a lazy iterator", "Применяет функцию к элементам одного или нескольких итерируемых объектов и возвращает ленивый итератор"],
+  ["such as", "такие как"],
+  ["do not need", "не нужны"],
+  ["can share", "могут разделять"],
+  ["can be", "может быть"],
+  ["as versioned files", "как версионированные файлы"],
+  ["like application code", "как код приложения"],
+  ["without necessarily blocking it", "не обязательно блокируя ее"],
+  ["text representations of its arguments", "текстовые представления своих аргументов"],
+  ["file-like stream", "поток, похожий на файл"],
+  ["standard input", "стандартный ввод"],
+  ["structured log record", "структурированную запись лога"],
+  ["configured logging handlers", "настроенные обработчики логирования"],
+  ["final output string", "итоговую строку вывода"],
+  ["Reads one line", "Читает одну строку"],
+  ["after showing a prompt", "после показа приглашения"],
+  ["returns a string", "возвращает строку"],
+  ["Returns an implementation-level identity value", "Возвращает значение идентичности на уровне реализации"],
+  ["during its lifetime", "на время жизни объекта"],
+  ["runtime class of an object", "класс объекта во время выполнения"],
+  ["called with three arguments", "вызове с тремя аргументами"],
+  ["number of items", "количество элементов"],
+  ["sized object", "объекте с размером"],
+  ["without iterating over every value manually", "без ручного перебора каждого значения"],
+  ["numeric values from an iterable", "числовые значения из итерируемого объекта"],
+  ["supplied start value", "заданного стартового значения"],
+  ["every element in an iterable is truthy", "каждый элемент итерируемого объекта истинный"],
+  ["including an empty iterable", "включая пустой итерируемый объект"],
+  ["belongs to a class", "принадлежит классу"],
+  ["one of the classes in a tuple", "одному из классов в кортеже"],
+  ["new sorted list", "новый отсортированный список"],
+  ["leaving the original object unchanged", "оставляя исходный объект без изменений"],
+  ["natural ordering or a key function", "естественному порядку или ключевой функции"],
+  ["human-readable string representation", "человекочитаемое строковое представление"],
+  ["normal display", "обычного отображения"],
+  ["developer-oriented representation", "представление для разработчика"],
+  ["unambiguous when possible", "по возможности однозначным"],
+  ["arithmetic progression of integers", "арифметическую прогрессию целых чисел"],
+  ["without storing the whole sequence", "без хранения всей последовательности"],
+  ["multiple iterables element by element", "несколько итерируемых объектов поэлементно"],
+  ["stops at the shortest input", "останавливается на самом коротком входе"],
+  ["reverse order", "обратном порядке"],
+  ["supports reverse iteration", "поддерживает обратную итерацию"],
+  ["counter that can start from a chosen value", "счетчиком, который может начинаться с выбранного значения"],
+  ["file object for reading, writing, appending, or binary access depending on mode", "файловый объект для чтения, записи, добавления или бинарного доступа в зависимости от режима"],
+  ["Rоunds a number", "Округляет число"],
+  ["Rounds a number", "Округляет число"],
+  ["requested precision", "заданной точности"],
+  ["ties rounded to the nearest even value", "половины округляются к ближайшему четному значению"],
+  ["name with an object", "имя с объектом"],
+  ["assignment does not copy the object by itself", "присваивание само по себе не копирует объект"],
+  ["Boolean contexts", "булевых контекстах"],
+  ["ignored by the interpreter", "игнорируемый интерпретатором"],
+  ["explaining code to humans", "объяснения кода людям"],
+  ["local, global, or built-ins", "локальный, глобальный или встроенный"],
+  ["module or package", "модуля или пакета"],
+  ["external definitions", "внешние определения"],
+  ["reserved word", "зарезервированное слово"],
+  ["syntactic meaning", "синтаксическое значение"],
+  ["normal identifier", "обычный идентификатор"],
+  ["fixed value directly in source code", "фиксированное значение прямо в исходном коде"],
+  ["block structure", "структуру блоков"],
+  ["instead of braces", "вместо фигурных скобок"],
+  ["values, names, calls, and operators", "значения, имена, вызовы и операторы"],
+  ["to produce a value", "чтобы получить значение"],
+  ["two references point to the same object", "две ссылки указывают на один и тот же объект"],
+  ["not merely equal values", "а не просто равные значения"],
+  ["action such as assignment, import, return", "действие вроде присваивания, импорта или возврата"],
+  ["compound control structure", "составной управляющей конструкции"],
+  ["string literal at the start", "строковый литерал в начале"],
+  ["for documentation", "для документации"],
+  ["absence of a value", "отсутствие значения"],
+  ["compared by identity", "сравнивается по идентичности"],
+  ["conventional naming", "принятое именование"],
+  ["functions and variables", "функций и переменных"],
+  ["current function call", "текущего вызова функции"],
+  ["before outer scopes", "до внешних областей видимости"],
+  ["enclosing function scope", "охватывающей области видимости функции"],
+  ["not global", "которая не является глобальной"],
+  ["mutable sequence", "изменяемая последовательность"],
+  ["ordered collection", "упорядоченная коллекция"],
+  ["immutable sequence", "неизменяемая последовательность"],
+  ["key-value pairs", "пары ключ-значение"],
+  ["hashable keys", "хешируемые ключи"],
+  ["preserves insertion order", "сохраняет порядок вставки"],
+  ["unique hashable elements", "уникальные хешируемые элементы"],
+  ["text sequence", "текстовая последовательность"],
+  ["extracts part of a sequence", "извлекает часть последовательности"],
+  ["compact way to build a list", "короткий способ создать список"],
+  ["lazy iterator", "ленивый итератор"],
+  ["shallow copy", "поверхностная копия"],
+  ["deep copy", "глубокая копия"],
+  ["same nested objects", "те же вложенные объекты"],
+  ["recursively copies nested objects", "рекурсивно копирует вложенные объекты"],
+  ["next value", "следующее значение"],
+  ["can be looped over", "можно перебирать в цикле"],
+  ["by position", "по позиции"],
+  ["adds one item", "добавляет один элемент"],
+  ["adds all items", "добавляет все элементы"],
+  ["default value", "значение по умолчанию"],
+  ["set union", "объединение множеств"],
+  ["set intersection", "пересечение множеств"],
+  ["cannot be changed after creation", "нельзя изменить после создания"],
+  ["can be used as a dict key", "можно использовать как ключ словаря"],
+  ["conditional branches", "условные ветки"],
+  ["repeats for each item", "повторяется для каждого элемента"],
+  ["repeats while a condition is true", "повторяется, пока условие истинно"],
+  ["exits the nearest loop", "выходит из ближайшего цикла"],
+  ["skips to the next iteration", "переходит к следующей итерации"],
+  ["does nothing", "ничего не делает"],
+  ["defines reusable code", "определяет переиспользуемый код"],
+  ["sends a value back to the caller", "отправляет значение вызывающему коду"],
+  ["pauses execution", "приостанавливает выполнение"],
+  ["anonymous function", "анонимная функция"],
+  ["positional arguments", "позиционные аргументы"],
+  ["keyword arguments", "именованные аргументы"],
+  ["evaluated once when the function is defined", "вычисляется один раз при определении функции"],
+  ["function calls itself", "функция вызывает саму себя"],
+  ["wraps or modifies another function", "оборачивает или изменяет другую функцию"],
+  ["function as an argument", "функцию как аргумент"],
+  ["returns a function as a result", "возвращает функцию как результат"],
+  ["captures variables from an enclosing scope", "захватывает переменные из внешней области видимости"],
+  ["Applies a callable", "Применяет вызываемый объект"],
+  ["Keeps items", "Оставляет элементы"],
+  ["class is a blueprint", "класс является чертежом"],
+  ["object is an instance", "объект является экземпляром"],
+  ["constructor-like initializer", "инициализатор, похожий на конструктор"],
+  ["current instance", "текущий экземпляр"],
+  ["shared by all instances", "общий для всех экземпляров"],
+  ["reuse behavior from a parent class", "переиспользовать поведение родительского класса"],
+  ["same interface", "один и тот же интерфейс"],
+  ["hide implementation details", "скрывать детали реализации"],
+  ["essential behavior", "существенное поведение"],
+  ["method bound to the class", "метод, привязанный к классу"],
+  ["method that does not receive self or cls automatically", "метод, который автоматически не получает self или cls"],
+  ["handles exceptions", "обрабатывает исключения"],
+  ["always runs after try/except", "всегда выполняется после try/except"],
+  ["raises an exception", "создает исключение"],
+  ["manages setup and cleanup", "управляет подготовкой и очисткой"],
+  ["object-oriented paths", "объектно-ориентированные пути"],
+  ["operating-system functions", "функции операционной системы"],
+  ["installs and manages Python packages", "устанавливает и управляет пакетами Python"],
+  ["continuous integration", "непрерывная интеграция"],
+  ["continuous delivery", "непрерывная доставка"],
+  ["continuous deployment", "непрерывное развертывание"],
+  ["blue-green deployment", "blue-green развертывание"],
+  ["canary deployment", "canary развертывание"],
+  ["feature flag", "фича-флаг"],
+  ["infrastructure as code", "инфраструктура как код"],
+  ["configuration drift", "дрейф конфигурации"],
+  ["immutable infrastructure", "неизменяемая инфраструктура"],
+  ["source control", "контроль версий"],
+  ["environment variable", "переменная окружения"],
+  ["merge conflict", "конфликт слияния"],
+  ["semantic versioning", "семантическое версионирование"],
+  ["pull request", "pull request"],
+  ["image layer", "слой образа"],
+  ["bind mount", "bind mount"],
+  ["Docker Compose", "Docker Compose"],
+  ["Kubernetes pod", "pod Kubernetes"],
+  ["liveness probe", "liveness probe"],
+  ["readiness probe", "readiness probe"],
+  ["rolling update", "rolling update"],
+  ["load balancer", "балансировщик нагрузки"],
+  ["reverse proxy", "обратный прокси"],
+  ["horizontal scaling", "горизонтальное масштабирование"],
+  ["vertical scaling", "вертикальное масштабирование"],
+  ["availability zone", "зона доступности"],
+  ["object storage", "объектное хранилище"],
+  ["message queue", "очередь сообщений"],
+  ["event-driven architecture", "событийная архитектура"],
+  ["health check", "проверка здоровья"],
+  ["computer network", "компьютерная сеть"],
+  ["OSI model", "модель OSI"],
+  ["TCP/IP model", "модель TCP/IP"],
+  ["physical layer", "физический уровень"],
+  ["data link layer", "канальный уровень"],
+  ["network layer", "сетевой уровень"],
+  ["transport layer", "транспортный уровень"],
+  ["session layer", "сеансовый уровень"],
+  ["presentation layer", "уровень представления"],
+  ["application layer", "прикладной уровень"],
+  ["MAC address", "MAC-адрес"],
+  ["IP address", "IP-адрес"],
+  ["port number", "номер порта"],
+  ["subnet mask", "маска подсети"],
+  ["CIDR notation", "CIDR-нотация"],
+  ["network address", "адрес сети"],
+  ["broadcast address", "широковещательный адрес"],
+  ["default gateway", "шлюз по умолчанию"],
+  ["private IPv4 address", "частный IPv4-адрес"],
+  ["public IP address", "публичный IP-адрес"],
+  ["loopback address", "loopback-адрес"],
+  ["ARP cache", "ARP-кеш"],
+  ["proxy server", "прокси-сервер"],
+  ["collision domain", "домен коллизий"],
+  ["broadcast domain", "широковещательный домен"],
+  ["sliding window", "скользящее окно"],
+  ["selective repeat", "выборочное повторение"],
+  ["token bucket", "token bucket"],
+  ["leaky bucket", "leaky bucket"],
+  ["flow control", "управление потоком"],
+  ["link aggregation", "агрегация каналов"],
+  ["authentication", "аутентификация"],
+  ["encryption", "шифрование"]
+].sort((a, b) => b[0].length - a[0].length);
+
+const RU_WORDS = [
+  ["statement", "утверждение"],
+  ["technically", "технически"],
+  ["correct", "верно"],
+  ["accurately", "точно"],
+  ["describes", "описывает"],
+  ["about", "о"],
+  ["best", "лучше всего"],
+  ["difference", "разница"],
+  ["printed", "напечатано"],
+  ["returns", "возвращает"],
+  ["return", "возвращает"],
+  ["writes", "записывает"],
+  ["reads", "читает"],
+  ["creates", "создает"],
+  ["checks", "проверяет"],
+  ["adds", "добавляет"],
+  ["represents", "представляет"],
+  ["combines", "объединяет"],
+  ["produces", "создает"],
+  ["defines", "определяет"],
+  ["exposes", "показывает"],
+  ["lets", "позволяет"],
+  ["stores", "хранит"],
+  ["keeps", "держит"],
+  ["separates", "разделяет"],
+  ["manages", "управляет"],
+  ["switches", "переключает"],
+  ["prioritizes", "приоритизирует"],
+  ["detects", "обнаруживает"],
+  ["forwards", "пересылает"],
+  ["routes", "маршрутизирует"],
+  ["transfers", "передает"],
+  ["connects", "соединяет"],
+  ["identifies", "идентифицирует"],
+  ["provides", "предоставляет"],
+  ["allows", "позволяет"],
+  ["prevents", "предотвращает"],
+  ["contains", "содержит"],
+  ["groups", "группирует"],
+  ["controls", "контролирует"],
+  ["replaces", "заменяет"],
+  ["distributes", "распределяет"],
+  ["caches", "кеширует"],
+  ["buffers", "буферизует"],
+  ["specifies", "задает"],
+  ["monitors", "мониторит"],
+  ["synchronizes", "синхронизирует"],
+  ["retrieves", "получает"],
+  ["resolves", "разрешает"],
+  ["retransmits", "повторно передает"],
+  ["transforms", "преобразует"],
+  ["verifies", "проверяет"],
+  ["encrypts", "шифрует"],
+  ["pairs", "связывает"],
+  ["while", "при этом"],
+  ["and", "и"],
+  ["or", "или"],
+  ["with", "с"],
+  ["without", "без"],
+  ["using", "используя"],
+  ["according", "согласно"],
+  ["based", "основанный"],
+  ["across", "через"],
+  ["within", "внутри"],
+  ["toward", "к"],
+  ["instead", "вместо"],
+  ["all", "все"],
+  ["every", "каждый"],
+  ["many", "многие"],
+  ["more", "больше"],
+  ["less", "меньше"],
+  ["no", "нет"],
+  ["blocks", "блокирует"],
+  ["configured", "настроенный"],
+  ["learned", "изученный"],
+  ["dedicated", "выделенный"],
+  ["activity", "активность"],
+  ["alerts", "оповещает"],
+  ["actively", "активно"],
+  ["necessarily", "обязательно"],
+  ["sender", "отправитель"],
+  ["receiver", "получатель"],
+  ["host", "хост"],
+  ["hosts", "хосты"],
+  ["through", "через"],
+  ["between", "между"],
+  ["inside", "внутри"],
+  ["outside", "снаружи"],
+  ["before", "до"],
+  ["after", "после"],
+  ["during", "во время"],
+  ["rather", "а не"],
+  ["only", "только"],
+  ["same", "тот же"],
+  ["different", "разный"],
+  ["selected", "выбранных"],
+  ["known", "известных"],
+  ["unknown", "неизвестных"],
+  ["remote", "удаленный"],
+  ["local", "локальный"],
+  ["shared", "общий"],
+  ["stable", "стабильный"],
+  ["logical", "логический"],
+  ["physical", "физический"],
+  ["virtual", "виртуальный"],
+  ["external", "внешний"],
+  ["internal", "внутренний"],
+  ["automated", "автоматизированный"],
+  ["ordered", "упорядоченный"],
+  ["releasable", "готовый к релизу"],
+  ["manual", "ручной"],
+  ["faulty", "ошибочный"],
+  ["sensitive", "чувствительный"],
+  ["incoming", "входящий"],
+  ["outgoing", "исходящий"],
+  ["redundant", "резервный"],
+  ["missing", "отсутствующий"],
+  ["damaged", "поврежденный"],
+  ["suspicious", "подозрительный"],
+  ["nearby", "близлежащий"],
+  ["wireless", "беспроводной"],
+  ["wired", "проводной"],
+  ["larger", "больший"],
+  ["smaller", "меньший"],
+  ["greater", "больший"],
+  ["newer", "более новый"],
+  ["older", "более старый"],
+  ["current", "текущий"],
+  ["previous", "предыдущий"],
+  ["final", "итоговый"],
+  ["average", "средний"],
+  ["traffic", "трафик"],
+  ["users", "пользователей"],
+  ["environments", "окружений"],
+  ["environment", "окружение"],
+  ["details", "детали"],
+  ["callers", "вызывающему коду"],
+  ["requirements", "требования"],
+  ["stages", "этапы"],
+  ["signals", "сигналы"],
+  ["logs", "логи"],
+  ["metrics", "метрики"],
+  ["traces", "трейсы"],
+  ["telemetry", "телеметрия"],
+  ["behavior", "поведение"],
+  ["release", "релиз"],
+  ["version", "версия"],
+  ["versions", "версии"],
+  ["server", "сервер"],
+  ["servers", "серверы"],
+  ["client", "клиент"],
+  ["clients", "клиенты"],
+  ["request", "запрос"],
+  ["requests", "запросы"],
+  ["response", "ответ"],
+  ["addresses", "адреса"],
+  ["address", "адрес"],
+  ["ports", "порты"],
+  ["rules", "правила"],
+  ["headers", "заголовки"],
+  ["trailers", "трейлеры"],
+  ["bits", "биты"],
+  ["bytes", "байты"],
+  ["frames", "кадры"],
+  ["packets", "пакеты"],
+  ["segments", "сегменты"],
+  ["acknowledgement", "подтверждение"],
+  ["acknowledgements", "подтверждения"],
+  ["throughput", "пропускная способность"],
+  ["latency", "задержка"],
+  ["capacity", "емкость"],
+  ["availability", "доступность"],
+  ["consistency", "согласованность"],
+  ["durability", "долговечность"],
+  ["confidentiality", "конфиденциальность"],
+  ["reliability", "надежность"],
+  ["compatibility", "совместимость"],
+  ["routing", "маршрутизация"],
+  ["switching", "коммутация"],
+  ["forwarding", "пересылка"],
+  ["blocking", "блокировка"],
+  ["delivery", "доставка"],
+  ["upload", "загрузка"],
+  ["download", "скачивание"],
+  ["build", "сборка"],
+  ["scan", "сканирование"],
+  ["deploy", "деплой"],
+  ["package", "пакет"],
+  ["production", "продакшен"],
+  ["review", "ревью"],
+  ["discussion", "обсуждение"],
+  ["approval", "одобрение"],
+  ["gate", "шлюз"],
+  ["subset", "подмножество"],
+  ["rollout", "раскатка"],
+  ["risk", "риск"],
+  ["blame", "вина"],
+  ["incident", "инцидент"],
+  ["object", "объект"],
+  ["objects", "объекты"],
+  ["class", "класс"],
+  ["classes", "классы"],
+  ["tuple", "кортеж"],
+  ["list", "список"],
+  ["dict", "словарь"],
+  ["dictionary", "словарь"],
+  ["set", "множество"],
+  ["string", "строка"],
+  ["iterable", "итерируемый объект"],
+  ["iterator", "итератор"],
+  ["value", "значение"],
+  ["values", "значения"],
+  ["item", "элемент"],
+  ["items", "элементы"],
+  ["key", "ключ"],
+  ["function", "функция"],
+  ["callable", "вызываемый объект"],
+  ["argument", "аргумент"],
+  ["arguments", "аргументы"],
+  ["variable", "переменная"],
+  ["variables", "переменные"],
+  ["scope", "область видимости"],
+  ["module", "модуль"],
+  ["package", "пакет"],
+  ["namespace", "пространство имен"],
+  ["assignment", "присваивание"],
+  ["identity", "идентичность"],
+  ["equality", "равенство"],
+  ["truthy", "истинный"],
+  ["falsey", "ложный"],
+  ["mutable", "изменяемый"],
+  ["immutable", "неизменяемый"],
+  ["hashable", "хешируемый"],
+  ["indexing", "индексация"],
+  ["slice", "срез"],
+  ["loop", "цикл"],
+  ["condition", "условие"],
+  ["execution", "выполнение"],
+  ["error", "ошибка"],
+  ["errors", "ошибки"],
+  ["exception", "исключение"],
+  ["file", "файл"],
+  ["files", "файлы"],
+  ["pipeline", "пайплайн"],
+  ["artifact", "артефакт"],
+  ["rollback", "откат"],
+  ["automation", "автоматизация"],
+  ["observability", "наблюдаемость"],
+  ["monitoring", "мониторинг"],
+  ["postmortem", "постмортем"],
+  ["container", "контейнер"],
+  ["containers", "контейнеры"],
+  ["image", "образ"],
+  ["registry", "реестр"],
+  ["volume", "том"],
+  ["deployment", "развертывание"],
+  ["service", "сервис"],
+  ["ingress", "ingress"],
+  ["namespace", "пространство имен"],
+  ["secret", "секрет"],
+  ["cluster", "кластер"],
+  ["region", "регион"],
+  ["subnet", "подсеть"],
+  ["cache", "кеш"],
+  ["microservices", "микросервисы"],
+  ["monolith", "монолит"],
+  ["network", "сеть"],
+  ["frame", "кадр"],
+  ["packet", "пакет"],
+  ["segment", "сегмент"],
+  ["datagram", "датаграмма"],
+  ["router", "маршрутизатор"],
+  ["switch", "коммутатор"],
+  ["bridge", "мост"],
+  ["hub", "хаб"],
+  ["firewall", "межсетевой экран"],
+  ["performance", "производительность"],
+  ["security", "безопасность"]
+];
+
+function escapeRegExp(s){
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function applyRuDictionary(text){
+  let out = String(text ?? "");
+
+  for (const [from, to] of RU_PHRASES){
+    out = out.replace(new RegExp(escapeRegExp(from), "gi"), to);
+  }
+
+  for (const [from, to] of RU_WORDS){
+    out = out.replace(new RegExp(`\\b${escapeRegExp(from)}\\b`, "gi"), to);
+  }
+
+  return out
+    .replace(/\s+([,.?!:;])/g, "$1")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
+function translateTopicRu(topic){
+  const key = String(topic ?? "").toLowerCase();
+  return RU_TOPICS[key] || applyRuDictionary(topic);
+}
+
+function translateQuestionPattern(text){
+  const source = String(text ?? "");
+  let m = source.match(/^Which statement most accurately describes (.+?) in (.+?)\?$/i);
+  if (m) return `Какое утверждение наиболее точно описывает ${applyRuDictionary(m[1])} в теме "${translateTopicRu(m[2])}"?`;
+
+  m = source.match(/^Which statement most accurately describes (.+?)\?$/i);
+  if (m) return `Какое утверждение наиболее точно описывает ${applyRuDictionary(m[1])}?`;
+
+  m = source.match(/^Which statement about (.+?) is technically correct\?$/i);
+  if (m) return `Какое утверждение о ${applyRuDictionary(m[1])} технически верно?`;
+
+  m = source.match(/^Which statement about (.+?) is correct\?$/i);
+  if (m) return `Какое утверждение о ${applyRuDictionary(m[1])} верно?`;
+
+  m = source.match(/^What exactly is printed by (.+?)\?$/i);
+  if (m) return `Что именно напечатает ${m[1]}?`;
+
+  m = source.match(/^What is printed by (.+?)\?$/i);
+  if (m) return `Что напечатает ${m[1]}?`;
+
+  m = source.match(/^What is printed after (.+?)\?$/i);
+  if (m) return `Что будет напечатано после ${m[1]}?`;
+
+  m = source.match(/^What is the result of (.+?)\?$/i);
+  if (m) return `Каков результат ${m[1]}?`;
+
+  m = source.match(/^What is the effect of (.+?)\?$/i);
+  if (m) return `Какой эффект у ${m[1]}?`;
+
+  m = source.match(/^What is the main trap in (.+?)\?$/i);
+  if (m) return `В чем главная ловушка в ${m[1]}?`;
+
+  m = source.match(/^What is true about (.+?)\?$/i);
+  if (m) return `Что верно о ${m[1]}?`;
+
+  m = source.match(/^What is the safest interpretation of (.+?)\?$/i);
+  if (m) return `Как безопаснее всего понимать ${m[1]}?`;
+
+  m = source.match(/^What is the role of (.+?)\?$/i);
+  if (m) return `Какова роль ${m[1]}?`;
+
+  m = source.match(/^Which answer best explains why (.+?)\?$/i);
+  if (m) return `Какой ответ лучше всего объясняет, почему ${applyRuDictionary(m[1])}?`;
+
+  m = source.match(/^Which answer best distinguishes (.+?) from (.+?)\?$/i);
+  if (m) return `Какой ответ лучше всего отличает ${applyRuDictionary(m[1])} от ${applyRuDictionary(m[2])}?`;
+
+  m = source.match(/^Which statement best describes the difference between (.+?) and (.+?)\?$/i);
+  if (m) return `Какое утверждение лучше всего описывает разницу между ${applyRuDictionary(m[1])} и ${applyRuDictionary(m[2])}?`;
+
+  m = source.match(/^What is a practical difference between (.+?) and (.+?)\?$/i);
+  if (m) return `В чем практическая разница между ${applyRuDictionary(m[1])} и ${applyRuDictionary(m[2])}?`;
+
+  return "";
+}
+
+function translateTextRu(input){
+  const codeParts = [];
+  const protectedText = String(input ?? "").replace(/`[^`]*`/g, (match) => {
+    const token = `__CODE_${codeParts.length}__`;
+    codeParts.push(match);
+    return token;
+  });
+
+  let out = translateQuestionPattern(protectedText) || applyRuDictionary(protectedText);
+  codeParts.forEach((code, idx) => {
+    out = out.replaceAll(`__CODE_${idx}__`, code);
+  });
+  return out;
+}
+
+function saveRuTranslationCacheSoon(){
+  clearTimeout(ruTranslationSaveTimer);
+  ruTranslationSaveTimer = setTimeout(() => {
+    try {
+      localStorage.setItem(RU_TRANSLATION_CACHE_KEY, JSON.stringify(ruTranslationCache));
+    } catch (err) {
+      console.warn("RU translation cache save failed:", err);
+    }
+  }, 300);
+}
+
+function requestTranslationRefresh(){
+  if (!translateRu) return;
+  clearTimeout(ruTranslationRefreshTimer);
+  ruTranslationRefreshTimer = setTimeout(() => {
+    updateStartDashboard();
+    if (isInLearningMode && TEST.length){
+      showAnswers();
+    } else if (TEST.length && startBtn.disabled && !hardMode){
+      renderTest();
+    }
+  }, 650);
+}
+
+async function fetchRuTranslation(raw){
+  const codeParts = [];
+  const protectedText = String(raw).replace(/`[^`]*`/g, (match) => {
+    const token = `ZXQCODE${codeParts.length}ZXQ`;
+    codeParts.push({ token, value: match });
+    return token;
+  });
+
+  const url = "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=ru&dt=t&q=" + encodeURIComponent(protectedText);
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`translate ${response.status}`);
+  const data = await response.json();
+  let translated = Array.isArray(data?.[0])
+    ? data[0].map(part => part?.[0] || "").join("")
+    : "";
+
+  for (const { token, value } of codeParts){
+    const spacedToken = token.replace(/^ZXQ/, "ZXQ ").replace(/ZXQ$/, " ZXQ");
+    translated = translated
+      .replaceAll(token, value)
+      .replaceAll(token.toLowerCase(), value)
+      .replaceAll(spacedToken, value)
+      .replaceAll(spacedToken.toLowerCase(), value);
+  }
+
+  return translated.trim();
+}
+
+function ensureRuTranslation(text){
+  if (!translateRu) return;
+  const raw = String(text ?? "");
+  if (!raw || ruTranslationCache[raw] || ruTranslationPending.has(raw) || ruTranslationFailed.has(raw)) return;
+
+  ruTranslationPending.add(raw);
+  fetchRuTranslation(raw)
+    .then(translated => {
+      if (translated) {
+        ruTranslationCache[raw] = translated;
+        saveRuTranslationCacheSoon();
+        requestTranslationRefresh();
+      }
+    })
+    .catch(err => {
+      ruTranslationFailed.add(raw);
+      console.warn("RU translation failed:", err);
+    })
+    .finally(() => {
+      ruTranslationPending.delete(raw);
+    });
+}
+
+function displayText(text){
+  const raw = String(text ?? "");
+  if (!translateRu) return raw;
+  ensureRuTranslation(raw);
+  return ruTranslationCache[raw] || translateTextRu(raw);
+}
+
+function acceptDisplayText(user, expected){
+  const translatedExpected = ruTranslationCache[String(expected ?? "")] || translateTextRu(expected);
+  return acceptText(user, expected) || (translateRu && acceptText(user, translatedExpected));
+}
+
+function updateTranslationUI(){
+  if (!translateBtn) return;
+  translateBtn.classList.toggle("is-on", translateRu);
+  translateBtn.setAttribute("aria-pressed", translateRu ? "true" : "false");
+  translateBtn.textContent = translateRu ? "RU: вкл" : "RU: выкл";
+  translateBtn.title = translateRu
+    ? "Показывается русский перевод с кешем. Проверка ответов идет по оригиналу."
+    : "Включить русский вариант вопросов и ответов.";
+}
 
 function setStatusPill(text){
   if (!statusPill) return;
@@ -168,7 +1030,8 @@ function updateStartDashboard(){
       num.textContent = String(idx + 1).padStart(2, "0");
 
       const text = document.createElement("p");
-      text.textContent = item.q;
+      text.textContent = displayText(item.q);
+      if (translateRu) text.title = item.q;
 
       row.appendChild(num);
       row.appendChild(text);
@@ -565,7 +1428,7 @@ function updateQStatsOnFinish(TEST, answers, mode, bankKey){
     if (mode === "mcq"){
       ok = (item.correctIndex !== -1 && user === item.correctIndex);
     } else {
-      ok = acceptText(user ?? "", item.correctText);
+      ok = acceptDisplayText(user ?? "", item.correctText);
     }
     
     if (ok){
@@ -691,7 +1554,8 @@ function renderTest(){
 
     const title = document.createElement("div");
     title.className = "qtitle";
-    title.textContent = `${item.n}) ${item.q}`;
+    title.textContent = `${item.n}) ${displayText(item.q)}`;
+    if (translateRu) title.title = item.q;
 
     const flagLabel = document.createElement("label");
     flagLabel.className = "flagToggle";
@@ -785,7 +1649,8 @@ function renderTest(){
 
 
         const txt = document.createElement("div");
-        txt.innerHTML = `<div><span class="kbd">${LETTERS[i]}</span> ${escapeHtml(optText)}</div>`;
+        txt.innerHTML = `<div><span class="kbd">${LETTERS[i]}</span> ${escapeHtml(displayText(optText))}</div>`;
+        if (translateRu) row.title = optText;
 
         row.appendChild(radio);
         row.appendChild(txt);
@@ -839,7 +1704,7 @@ function finish(){
       if (mode === "mcq"){
         ok = (item.correctIndex !== -1 && user === item.correctIndex);
       } else {
-        ok = acceptText(user ?? "", item.correctText);
+        ok = acceptDisplayText(user ?? "", item.correctText);
       }
       if (ok && user !== undefined && user !== -1){
         hardmodeStreakQuestions++;
@@ -863,7 +1728,7 @@ function finish(){
       // В hardmode -1 считается таймаутом
       if (hardMode && user === -1) isTimeout = true;
     } else {
-      ok = acceptText(user ?? "", item.correctText);
+      ok = acceptDisplayText(user ?? "", item.correctText);
       // В hardmode пустой ответ считается таймаутом
       if (hardMode && (!user || String(user).trim() === "")) isTimeout = true;
     }
@@ -891,8 +1756,8 @@ function finish(){
       wrong.push({
         n: item.n,
         q: item.q,
-        your: yourText,
-        expected: item.correctText
+        your: displayText(yourText),
+        expected: displayText(item.correctText)
       });
     }
   }
@@ -952,7 +1817,7 @@ if (hardMode){
     parts.push(`<div class="divider"></div>`);
     parts.push(`<details open><summary>Ошибки (${wrong.length})</summary><div class="small">` + wrong.map(w =>
       `<div style="margin:10px 0">
-        <div><b>${w.n})</b> ${escapeHtml(w.q)}</div>
+        <div><b>${w.n})</b> ${escapeHtml(displayText(w.q))}</div>
         <div class="bad">Твой ответ: ${escapeHtml(w.your)}</div>
         <div class="ok">Правильный ответ: ${escapeHtml(w.expected)}</div>
       </div>`
@@ -1138,7 +2003,7 @@ function checkHardModeAnswer(item, userAnswer){
       isCorrect = (userAnswer === item.correctIndex);
     }
   } else {
-    isCorrect = acceptText(userAnswer ?? "", item.correctText);
+    isCorrect = acceptDisplayText(userAnswer ?? "", item.correctText);
   }
   
   return isCorrect;
@@ -1159,7 +2024,7 @@ function showHardModeFail(){
     if (mode === "mcq"){
       ok = (item.correctIndex !== -1 && user === item.correctIndex);
     } else {
-      ok = acceptText(user ?? "", item.correctText);
+      ok = acceptDisplayText(user ?? "", item.correctText);
     }
     if (ok && user !== undefined && user !== -1){
       hardmodeStreakQuestions++;
@@ -1382,6 +2247,22 @@ testSizeSelect.addEventListener("change", () => {
   updateStartDashboard();
 });
 
+updateTranslationUI();
+if (translateBtn){
+  translateBtn.addEventListener("click", () => {
+    translateRu = !translateRu;
+    localStorage.setItem("quiz_translate_ru", translateRu ? "1" : "0");
+    updateTranslationUI();
+    updateStartDashboard();
+
+    if (isInLearningMode && TEST.length){
+      showAnswers();
+    } else if (TEST.length && startBtn.disabled){
+      renderTest();
+    }
+  });
+}
+
 let lastStartWasHardOnly = false;
 
 function startQuiz({ hardOnly = false } = {}){
@@ -1484,13 +2365,18 @@ function showAnswers(){
 
     const title = document.createElement("div");
     title.className = "qtitle";
-    title.textContent = `${item.n}) ${item.q}`;
+    title.textContent = `${item.n}) ${displayText(item.q)}`;
+    if (translateRu) title.title = item.q;
     card.appendChild(title);
 
     if (mode === "text"){
       const correctDiv = document.createElement("div");
       correctDiv.className = "ok";
       correctDiv.textContent = "✓ Ответ: " + item.correctText;
+      if (translateRu){
+        correctDiv.textContent = "\u2713 \u041e\u0442\u0432\u0435\u0442: " + displayText(item.correctText);
+        correctDiv.title = item.correctText;
+      }
       card.appendChild(correctDiv);
     } else {
       const options = item.options;
@@ -1503,7 +2389,8 @@ function showAnswers(){
         label.style.width = "100%";
         const isCorrect = (i === item.correctIndex);
         const color = isCorrect ? "color: #6ee7a8; font-weight: bold;" : "";
-        label.innerHTML = `<span class="kbd" style="${color}">${LETTERS[i]}</span> <span style="${color}">${escapeHtml(optText)}</span>`;
+        label.innerHTML = `<span class="kbd" style="${color}">${LETTERS[i]}</span> <span style="${color}">${escapeHtml(displayText(optText))}</span>`;
+        if (translateRu) row.title = optText;
 
         row.appendChild(label);
         card.appendChild(row);

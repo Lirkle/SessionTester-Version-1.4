@@ -35,6 +35,7 @@
           <span class="pill stats-pill"><span class="dot" style="background:var(--warn);box-shadow:0 0 0 3px rgba(255,192,107,.18)"></span>Время: <span id="siteTimeDisplay">0 мин 0 сек</span></span>
           <span class="pill stats-pill"><span class="dot" style="background:var(--accent);box-shadow:0 0 0 3px rgba(43,108,255,.18)"></span>EXP: <span id="expDisplay">0</span> · <span id="rankDisplay">Новичок</span></span>
           <span class="pill stats-pill"><span class="dot" style="background:var(--ok);box-shadow:0 0 0 3px rgba(66,230,163,.18)"></span>Тестов: <span id="testsCompletedDisplay">0</span></span>
+          <button id="translateBtn" type="button" class="translate-btn" aria-pressed="false">RU: выкл</button>
         </div>
       </div>
     </header>
@@ -86,6 +87,7 @@
             </div>
             <select id="bankSelect">
               <option value="python_devops_networks_no_guess">Gaziz 2.0</option>
+              <option value="python_devops_networks_hard">Gaziz 2.0 Simple</option>
             </select>
           </div>
 
@@ -175,6 +177,11 @@
               <strong>350</strong>
               <small>Python · DevOps · Networks</small>
             </article>
+            <article class="bank-tile" data-bank-tile="python_devops_networks_hard">
+              <span class="bank-tile__name">Gaziz 2.0 Simple</span>
+              <strong>350</strong>
+              <small>Basics · Simple mode</small>
+            </article>
           </section>
 
           <section class="progress-board">
@@ -246,6 +253,7 @@
   <!-- Banks + App -->
   <script>window.QUIZ_BANKS = window.QUIZ_BANKS || {};</script>
   <script src="banks/gaziz2.0.js"></script>
+  <script src="banks/gaziz2.0%20Simple.js"></script>
   <script src="static/app.js"></script>
 
   <!-- Optional small UI mirrors (doesn't break app.js; safe if elements exist) -->

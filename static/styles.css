@@ -157,6 +157,30 @@ h1{
 
 .stats-pill{ font-size:12px; }
 
+.translate-btn{
+  min-height:32px;
+  padding:6px 12px;
+  border:1px solid var(--line);
+  border-radius:999px;
+  background:#171b1e;
+  color:var(--muted);
+  font:800 12.5px/1.2 Inter, ui-sans-serif, system-ui, sans-serif;
+  cursor:pointer;
+  transition:background .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease;
+}
+
+.translate-btn:hover{
+  border-color:var(--line-strong);
+  color:var(--text);
+}
+
+.translate-btn.is-on{
+  border-color:rgba(79,178,134,.72);
+  background:#13231d;
+  color:#bff1d5;
+  box-shadow:0 0 0 3px rgba(79,178,134,.14);
+}
+
 .dot{
   width:8px;
   height:8px;
