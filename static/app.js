@@ -87,6 +87,13 @@ let ALL = parseBank(RAW_BANK, ANSWER_TEXT);
 
 /** ========= НАСТРОЙКИ ========= */
 const LETTERS = ["A","B","C","D","E"];
+const DEFAULT_BANK_KEY = "python_devops_networks_no_guess";
+const BANK_LABELS = {
+  [DEFAULT_BANK_KEY]: "Gaziz 2.0"
+};
+const BANK_MAX_SIZES = {
+  [DEFAULT_BANK_KEY]: 350
+};
 
 const elQuiz = document.getElementById("quiz");
 const elOut = document.getElementById("out");
@@ -101,9 +108,74 @@ const clearFlagsBtn = document.getElementById("clearFlagsBtn");
 const statusPill = document.getElementById("statusPill");
 const meta = document.getElementById("meta");
 const maxTestSizeDisplay = document.getElementById("maxTestSizeDisplay");
+const startDashboard = document.getElementById("startDashboard");
+const dashTitle = document.getElementById("dashTitle");
+const dashBankCount = document.getElementById("dashBankCount");
+const dashMode = document.getElementById("dashMode");
+const dashHardCount = document.getElementById("dashHardCount");
+const dashExp = document.getElementById("dashExp");
+const dashRankMini = document.getElementById("dashRankMini");
+const dashTests = document.getElementById("dashTests");
+const dashTime = document.getElementById("dashTime");
+const dashPreview = document.getElementById("dashPreview");
+const quickStartBtn = document.getElementById("quickStartBtn");
+const quickHardBtn = document.getElementById("quickHardBtn");
 
 const timerText = document.getElementById("timerText");
 const appEl = document.querySelector(".app");
+
+function setStatusPill(text){
+  if (!statusPill) return;
+  let dot = statusPill.querySelector(".dot");
+  if (!dot) {
+    dot = document.createElement("span");
+    dot.className = "dot";
+  }
+  statusPill.textContent = "";
+  statusPill.appendChild(dot);
+  statusPill.appendChild(document.createTextNode(text));
+}
+
+function setMetaText(text){
+  if (!meta) return;
+  meta.textContent = text;
+  const pill = meta.closest(".pill");
+  if (pill) pill.style.display = text ? "inline-flex" : "none";
+}
+
+function updateStartDashboard(){
+  if (!startDashboard) return;
+
+  const selectedOption = bankSelect?.options[bankSelect.selectedIndex];
+  const bankName = selectedOption?.textContent || "Банк";
+  if (dashTitle) dashTitle.textContent = `${bankName} · ${TEST_SIZE} вопросов`;
+  if (dashBankCount) dashBankCount.textContent = String(ALL.length || 0);
+  if (dashMode) dashMode.textContent = mode === "mcq" ? "A–E" : "Текст";
+  if (dashHardCount) dashHardCount.textContent = String(hardQuestions.size);
+
+  document.querySelectorAll("[data-bank-tile]").forEach(tile => {
+    tile.classList.toggle("is-active", tile.dataset.bankTile === currentBankKey);
+  });
+
+  if (dashPreview){
+    dashPreview.innerHTML = "";
+    const previewItems = ALL.slice(0, 3);
+    previewItems.forEach((item, idx) => {
+      const row = document.createElement("div");
+      row.className = "session-preview__item";
+
+      const num = document.createElement("span");
+      num.textContent = String(idx + 1).padStart(2, "0");
+
+      const text = document.createElement("p");
+      text.textContent = item.q;
+
+      row.appendChild(num);
+      row.appendChild(text);
+      dashPreview.appendChild(row);
+    });
+  }
+}
 
 let startTs = 0;
 let timerId = null;
@@ -163,17 +235,75 @@ let skipObserver = null;
 
 
 // === HARD AUTO (ошибка -> добавить, 2 подряд верно -> снять) ===
-const HARD_KEY = "hard_questions_bankN";
-const HARD_STATS_KEY = "hard_stats_bankN";
+const LEGACY_HARD_KEY = "hard_questions_bankN";
+const LEGACY_HARD_STATS_KEY = "hard_stats_bankN";
+let currentBankKey = DEFAULT_BANK_KEY;
 
-let hardQuestions = new Set(JSON.parse(localStorage.getItem(HARD_KEY) || "[]")); // bankN
-let hardStats = JSON.parse(localStorage.getItem(HARD_STATS_KEY) || "{}");        // { [bankN]: { streak, wrong } }
+let hardQuestions = new Set(); // bank-local question ids
+let hardStats = {};            // { [bankN]: { streak, wrong } }
+
+function readJson(key, fallback){
+  try {
+    const saved = localStorage.getItem(key);
+    return saved ? JSON.parse(saved) : fallback;
+  } catch(e){
+    console.warn("Ошибка загрузки localStorage:", key, e);
+    return fallback;
+  }
+}
+
+function getHardKey(bankKey = currentBankKey){
+  return `hard_questions_${bankKey}_v2`;
+}
+
+function getHardStatsKey(bankKey = currentBankKey){
+  return `hard_stats_${bankKey}_v2`;
+}
+
+function hardId(bankN){
+  return String(bankN);
+}
+
+function loadHardState(bankKey = currentBankKey){
+  const hardKey = getHardKey(bankKey);
+  const statsKey = getHardStatsKey(bankKey);
+
+  let savedQuestions = readJson(hardKey, null);
+  let savedStats = readJson(statsKey, null);
+
+  // One-time soft migration for old global storage.
+  if (savedQuestions === null) savedQuestions = readJson(LEGACY_HARD_KEY, []);
+  if (savedStats === null) savedStats = readJson(LEGACY_HARD_STATS_KEY, {});
+
+  hardQuestions = new Set((Array.isArray(savedQuestions) ? savedQuestions : []).map(hardId));
+  hardStats = (savedStats && typeof savedStats === "object" && !Array.isArray(savedStats)) ? savedStats : {};
+}
 
 function saveHard(){
-  localStorage.setItem(HARD_KEY, JSON.stringify([...hardQuestions]));
+  localStorage.setItem(getHardKey(), JSON.stringify([...hardQuestions]));
 }
 function saveHardStats(){
-  localStorage.setItem(HARD_STATS_KEY, JSON.stringify(hardStats));
+  localStorage.setItem(getHardStatsKey(), JSON.stringify(hardStats));
+}
+
+function hasHardQuestion(bankN){
+  return hardQuestions.has(hardId(bankN));
+}
+
+function addHardQuestion(bankN){
+  hardQuestions.add(hardId(bankN));
+}
+
+function deleteHardQuestion(bankN){
+  hardQuestions.delete(hardId(bankN));
+}
+
+function updateHardButton(){
+  if (!hardBtn) return;
+  const disabled = (hardQuestions.size === 0 || startBtn.disabled);
+  hardBtn.disabled = disabled;
+  if (quickHardBtn) quickHardBtn.disabled = disabled;
+  updateStartDashboard();
 }
 
 function clearAllFlags(){
@@ -181,7 +311,7 @@ function clearAllFlags(){
   hardStats = {};
   saveHard();
   saveHardStats();
-  hardBtn.disabled = true;
+  updateHardButton();
   // Перерисовать тест только если он действительно запущен (кнопка "Начать" отключена)
   if (TEST.length > 0 && startBtn.disabled) {
     renderTest();
@@ -189,7 +319,6 @@ function clearAllFlags(){
 }
 
 let mode = localStorage.getItem("quiz_mode") || "mcq";
-let isHardMode = false; // флаг - находимся ли в режиме сложных вопросов
 modeSelect.value = mode;
 
 function shuffle(arr){
@@ -200,41 +329,52 @@ function shuffle(arr){
   return arr;
 }
 
+function makeQuestionId(idx){
+  return globalThis.crypto?.randomUUID
+    ? globalThis.crypto.randomUUID()
+    : `${Date.now()}_${idx}_${Math.random().toString(16).slice(2)}`;
+}
+
+function buildTestItem(source, idx){
+  const shuffledOptions = shuffle(source.options.map((text, originalIndex) => ({
+    text,
+    isCorrect: originalIndex === source.correctIndex
+  })));
+
+  let correctIndex = shuffledOptions.findIndex(option => option.isCorrect);
+  if (correctIndex === -1){
+    correctIndex = shuffledOptions.findIndex(option => norm(option.text) === norm(source.correctText));
+  }
+
+  return {
+    id: makeQuestionId(idx),
+    n: idx + 1,
+    bankN: source.n,
+    q: source.q,
+    options: shuffledOptions.map(option => option.text),
+    correctIndex,
+    correctText: source.correctText
+  };
+}
+
 function buildTest(){
   answers.clear();
   const picked = shuffle([...ALL]).slice(0, Math.min(TEST_SIZE, ALL.length));
-  TEST = picked.map((x, idx) => ({
-    id: (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + idx),
-    n: idx + 1,
-    bankN: x.n, // стабильный номер вопроса
-    q: x.q,
-    options: x.options,
-    correctIndex: x.correctIndex,
-    correctText: x.correctText
-  }));
+  TEST = picked.map(buildTestItem);
 }
 
 function buildTestHard(){
   answers.clear();
 
-  const hardItems = ALL.filter(x => hardQuestions.has(x.n));
+  const hardItems = ALL.filter(x => hasHardQuestion(x.n));
   if (hardItems.length === 0){
     alert("Нет помеченных сложных вопросов.");
     return false;
   }
 
   const picked = shuffle([...hardItems]).slice(0, Math.min(TEST_SIZE, hardItems.length));
-  TEST = picked.map((x, idx) => ({
-    id: (crypto?.randomUUID ? crypto.randomUUID() : String(Date.now()) + "_" + idx),
-    n: idx + 1,
-    bankN: x.n,
-    q: x.q,
-    options: x.options,
-    correctIndex: x.correctIndex,
-    correctText: x.correctText
-  }));
+  TEST = picked.map(buildTestItem);
 
-  isHardMode = true;
   return true;
 }
 
@@ -441,7 +581,6 @@ function updateQStatsOnFinish(TEST, answers, mode, bankKey){
   }
   
   saveQStats(allStats);
-  console.log(`updateQStatsOnFinish: обновлено ${updatedCount} вопросов для банка "${bankKey}"`);
 }
 
 // ===== Сессии/история результатов =====
@@ -528,10 +667,17 @@ function renderTest(){
   elOut.style.display = "none";
   elOut.innerHTML = "";
 
+  if (!TEST.length){
+    finishBtn.disabled = true;
+    learnBtn.disabled = true;
+    restartBtn.disabled = true;
+    return;
+  }
+
   const frag = document.createDocumentFragment();
 
   // В Hardmode показываем только текущий вопрос
-  const itemsToShow = hardMode ? [TEST[curIdx]] : TEST;
+  const itemsToShow = hardMode ? (TEST[curIdx] ? [TEST[curIdx]] : []) : TEST;
 
   for (const item of itemsToShow){
     const card = document.createElement("div");
@@ -554,16 +700,16 @@ function renderTest(){
     const flagInput = document.createElement("input");
     flagInput.type = "checkbox";
     flagInput.className = "flagInput";
-    flagInput.checked = hardQuestions.has(item.bankN);
+    flagInput.checked = hasHardQuestion(item.bankN);
     flagInput.addEventListener("change", (e) => {
       e.stopPropagation();
       if (flagInput.checked) {
-        hardQuestions.add(item.bankN);
+        addHardQuestion(item.bankN);
       } else {
-        hardQuestions.delete(item.bankN);
+        deleteHardQuestion(item.bankN);
       }
       saveHard();
-      hardBtn.disabled = (hardQuestions.size === 0);
+      updateHardButton();
     });
 
     const flagIcon = document.createElement("span");
@@ -598,21 +744,24 @@ function renderTest(){
       inp.placeholder = "Введите ответ…";
       inp.value = answers.get(item.id) ?? "";
       inp.addEventListener("input", () => {
-  const wasEmpty = !answers.get(item.id) || String(answers.get(item.id)).trim() === "";
-  answers.set(item.id, inp.value);
-  setSkipUI(card, inp.value.trim() === "");
-  if (hardMode && inp.value.trim() !== "") {
-    stopQuestionTimer();
-    // Небольшая задержка для проверки ответа
-    setTimeout(() => breakAndNext(false), 100);
-  }
-});
+        answers.set(item.id, inp.value);
+        setSkipUI(card, inp.value.trim() === "");
+      });
+      inp.addEventListener("keydown", (e) => {
+        if (!hardMode || e.key !== "Enter") return;
+        if (!inp.value.trim()) return;
+        e.preventDefault();
+        stopQuestionTimer();
+        setTimeout(() => breakAndNext(false), 80);
+      });
 
       card.appendChild(inp);
 
       const hint = document.createElement("div");
       hint.className = "muted small";
-      hint.textContent = "Проверка: без регистра, лишние пробелы игнорируются.";
+      hint.textContent = hardMode
+        ? "Введите ответ и нажмите Enter. Регистр и лишние пробелы игнорируются."
+        : "Проверка: без регистра, лишние пробелы игнорируются.";
       card.appendChild(hint);
     } else {
       const saved = answers.get(item.id);
@@ -625,15 +774,14 @@ function renderTest(){
         radio.name = "q_" + item.id;
         radio.value = String(i);
         radio.checked = (saved === i);
-radio.addEventListener("change", () => {
-  answers.set(item.id, Number(radio.value));
-  setSkipUI(card, false);
-  if (hardMode) {
-    stopQuestionTimer();
-    // Небольшая задержка для проверки ответа
-    setTimeout(() => breakAndNext(false), 100);
-  }
-});
+        radio.addEventListener("change", () => {
+          answers.set(item.id, Number(radio.value));
+          setSkipUI(card, false);
+          if (hardMode) {
+            stopQuestionTimer();
+            setTimeout(() => breakAndNext(false), 100);
+          }
+        });
 
 
         const txt = document.createElement("div");
@@ -657,16 +805,19 @@ radio.addEventListener("change", () => {
   setupSkipHighlighter();
 
   const notFound = TEST.filter(t => t.correctIndex === -1).length;
-  statusPill.textContent = "Тест запущен";
-  meta.textContent =
+  setStatusPill("Тест запущен");
+  setMetaText(
     `Вопросов: ${TEST.length} (из ${ALL.length}). Режим: ${mode === "mcq" ? "A–E" : "текст"}.` +
-    (notFound ? ` ⚠️ Не найден ключ для: ${notFound}` : "");
+    (notFound ? ` ⚠️ Не найден ключ для: ${notFound}` : "")
+  );
   finishBtn.disabled = false;
   learnBtn.disabled = hardMode;  // недоступна в hardmode
   restartBtn.disabled = false;
 }
 
 function finish(){
+  if (!TEST.length) return;
+
   stopQuestionTimer();
   stopHardmodeMusic();
   stopTimer();
@@ -677,7 +828,7 @@ function finish(){
   const wrong = [];
   
   // Получаем bankKey для статистики
-  const bankKey = localStorage.getItem("quiz_bank") || "gaziz";
+  const bankKey = resolveBankKey(localStorage.getItem("quiz_bank") || DEFAULT_BANK_KEY);
   
   // Для hardmode: считаем streakQuestions (сколько вопросов подряд пройдено)
   let hardmodeStreakQuestions = 0;
@@ -718,17 +869,17 @@ function finish(){
     }
 
     // Авто-логика для сложных вопросов
-    const k = String(item.bankN);
+    const k = hardId(item.bankN);
     hardStats[k] ??= { streak: 0, wrong: 0 };
     if (ok) {
       hardStats[k].streak = (hardStats[k].streak || 0) + 1;
       if (hardStats[k].streak >= 2) {
-        hardQuestions.delete(item.bankN);
+        deleteHardQuestion(item.bankN);
       }
     } else {
       hardStats[k].streak = 0;
       hardStats[k].wrong = (hardStats[k].wrong || 0) + 1;
-      hardQuestions.add(item.bankN);
+      addHardQuestion(item.bankN);
     }
 
     if (ok) correct++;
@@ -747,6 +898,7 @@ function finish(){
   }
 
 const percent = Math.floor((correct / TEST.length) * 100);
+const passed = (TEST.length >= 30 && percent >= 95);
 
 // Обновляем статистику по вопросам
 updateQStatsOnFinish(TEST, answers, mode, bankKey);
@@ -812,20 +964,19 @@ if (hardMode){
   elOut.innerHTML = parts.join("");
   elOut.style.display = "block";
   elQuiz.innerHTML = "";
-  statusPill.textContent = "Тест завершён";
+  setStatusPill("Тест завершён");
   finishBtn.disabled = true;
   learnBtn.disabled = true;
   startBtn.disabled = false;
   restartBtn.disabled = false;
   if (abortBtn) abortBtn.disabled = true;
   setRunning(false);
+  appEl.classList.add("has-output");
   
   // Сохраняем обновленные сложные вопросы и статистику
   saveHard();
   saveHardStats();
-  hardBtn.disabled = (hardQuestions.size === 0);
-
-const passed = (startBtn.disabled && TEST.length >= 30) && (percent >= 95);
+  updateHardButton();
 
 if (passed){
   stats.tests_completed++;
@@ -863,13 +1014,13 @@ if (hardModeToggle){
 }
 
 // ===== Hardmode music =====
-const BASE = "/" + location.pathname.split("/")[1]; // "/SessionTester-Version-1.4"
+const APP_SCRIPT_URL = document.currentScript?.src || window.location.href;
 const HARDMODE_PLAYLIST = [
-  `${BASE}/static/music/01.mp3`,
-  `${BASE}/static/music/02.mp3`,
-  `${BASE}/static/music/03.mp3`,
-  `${BASE}/static/music/04.mp3`,
-];
+  "music/01.mp3",
+  "music/02.mp3",
+  "music/03.mp3",
+  "music/04.mp3",
+].map(path => new URL(path, APP_SCRIPT_URL).href);
 
 
 let hmAudio = null;
@@ -999,7 +1150,7 @@ function showHardModeFail(){
   stopTimer();
   
   // Сохраняем рекорды hardmode перед завершением
-  const bankKey = localStorage.getItem("quiz_bank") || "gaziz";
+  const bankKey = resolveBankKey(localStorage.getItem("quiz_bank") || DEFAULT_BANK_KEY);
   let hardmodeStreakQuestions = 0;
   for (let i = 0; i < curIdx; i++){
     const item = TEST[i];
@@ -1111,60 +1262,42 @@ function showAchievementToast(tier, questionsCount){
   }, 4500);
 }
 function resolveBankKey(selectedName){
-  return selectedName;
+  return window.QUIZ_BANKS[selectedName] ? selectedName : DEFAULT_BANK_KEY;
+}
+
+function getBankLabel(bankKey){
+  return BANK_LABELS[resolveBankKey(bankKey)] || bankKey;
+}
+
+function getBankItems(key){
+  const resolvedKey = resolveBankKey(key);
+  const bank = window.QUIZ_BANKS[resolvedKey];
+  if (!bank) {
+    alert("Банк не найден: " + resolvedKey);
+    return null;
+  }
+
+  return parseBank(bank.raw, bank.answers);
+}
+
+function getQuestionMapForBank(bankKey){
+  const items = getBankItems(resolveBankKey(bankKey));
+  return new Map((items || []).map(x => [x.n, x.q]));
 }
 
 function setBank(name) {
   const key = resolveBankKey(name);
+  const items = getBankItems(key);
+  if (!items) return;
 
-  // Специальный комбинированный банк: Газиз + Кундыз
-  if (key === "gaziz_kundyz") {
-    const gazizBank = window.QUIZ_BANKS.gaziz;
-    const kundyzBank = window.QUIZ_BANKS.kundyz;
-
-    if (!gazizBank || !kundyzBank) {
-      alert("Не найдены банки Газиз или Кундыз");
-      return;
-    }
-
-    const gazizItems = parseBank(gazizBank.raw, gazizBank.answers);
-    const kundyzItems = parseBank(kundyzBank.raw, kundyzBank.answers);
-
-    // Перенумерация, чтобы не пересекались номера вопросов
-    const gazizRenumbered = gazizItems.map((item, idx) => ({
-      ...item,
-      n: idx + 1
-    }));
-    const offset = gazizRenumbered.length;
-    const kundyzRenumbered = kundyzItems.map((item, idx) => ({
-      ...item,
-      n: offset + idx + 1
-    }));
-
-    RAW_BANK = "";
-    ANSWER_TEXT = [];
-    ALL = [...gazizRenumbered, ...kundyzRenumbered];
-
-  } else {
-    const bank = window.QUIZ_BANKS[key];
-    if (!bank) {
-      alert("Банк не найден: " + key);
-      return;
-    }
-
-    // Устанавливаем данные банка
-    RAW_BANK = bank.raw;
-    ANSWER_TEXT = bank.answers;
-    ALL = parseBank(RAW_BANK, ANSWER_TEXT);
-  }
+  currentBankKey = key;
+  RAW_BANK = "";
+  ANSWER_TEXT = [];
+  ALL = items;
+  loadHardState(currentBankKey);
 
   // Обновляем максимальное количество вопросов в зависимости от банка
-  const maxByBank = {
-    gaziz: 150,
-    kundyz: 140,
-    gaziz_kundyz: 290
-  };
-  const maxSize = maxByBank[key] || 150;
+  const maxSize = BANK_MAX_SIZES[key] || ALL.length || 10;
   if (maxTestSizeDisplay) maxTestSizeDisplay.textContent = maxSize;
 
   // Отключаем опции которые больше максимума
@@ -1172,6 +1305,16 @@ function setBank(name) {
     const val = parseInt(option.value, 10);
     option.disabled = (val > maxSize);
   });
+
+  const enabledSizes = Array.from(testSizeSelect.options)
+    .map(option => parseInt(option.value, 10))
+    .filter(value => value <= maxSize);
+  if (!enabledSizes.includes(TEST_SIZE)){
+    TEST_SIZE = enabledSizes.filter(value => value <= TEST_SIZE).pop() || enabledSizes[0] || 10;
+    localStorage.setItem("quiz_test_size", String(TEST_SIZE));
+  }
+  testSizeSelect.value = String(TEST_SIZE);
+  testSizeDisplay.textContent = TEST_SIZE;
 
   // Сохраняем выбор
   localStorage.setItem("quiz_bank", name);
@@ -1181,6 +1324,7 @@ function setBank(name) {
   answers.clear();
   elQuiz.innerHTML = "";
   elOut.style.display = "none";
+  appEl.classList.remove("has-output");
   setRunning(false);
   
   // Сбрасываем таймер и музыку
@@ -1193,18 +1337,18 @@ function setBank(name) {
   restartBtn.disabled = true;
   finishBtn.disabled = true;
   learnBtn.disabled = true;
-  if (hardBtn) hardBtn.disabled = true;
   if (abortBtn) abortBtn.disabled = true;
+  updateHardButton();
 
   // Сбрасываем информационные поля
-  statusPill.textContent = "Тест не запущен";
-  meta.textContent = "";
+  setStatusPill("Тест не запущен");
+  setMetaText("");
 
   // Только подготовить тест, не отрисовывать (отрисовка только после "Начать")
   buildTest();
 }
 
-const saved = localStorage.getItem("quiz_bank") || "gaziz";
+const saved = resolveBankKey(localStorage.getItem("quiz_bank") || DEFAULT_BANK_KEY);
 bankSelect.value = saved;
 setBank(saved);
 
@@ -1212,45 +1356,74 @@ bankSelect.addEventListener("change", () => {
   setBank(bankSelect.value);
 });
 
+document.querySelectorAll("[data-bank-tile]").forEach(tile => {
+  tile.addEventListener("click", () => {
+    const key = tile.dataset.bankTile;
+    if (!key || bankSelect.value === key) return;
+    bankSelect.value = key;
+    setBank(key);
+  });
+});
+
 /** ========= UI ========= */
 modeSelect.addEventListener("change", () => {
   mode = modeSelect.value;
   localStorage.setItem("quiz_mode", mode);
-  renderTest();
+  updateStartDashboard();
+  if (startBtn.disabled && TEST.length && !isInLearningMode) {
+    renderTest();
+  }
 });
 
 testSizeSelect.addEventListener("change", () => {
   TEST_SIZE = parseInt(testSizeSelect.value, 10);
   localStorage.setItem("quiz_test_size", String(TEST_SIZE));
   testSizeDisplay.textContent = TEST_SIZE;
+  updateStartDashboard();
 });
+
+let lastStartWasHardOnly = false;
+
+function startQuiz({ hardOnly = false } = {}){
+  const built = hardOnly ? buildTestHard() : buildTest();
+  if (built === false) return;
+
+  appEl.classList.remove("has-output");
+  lastStartWasHardOnly = hardOnly;
+  curIdx = 0;
+  isInLearningMode = false;
+  backBtn.disabled = true;
+  setRunning(true);
+  renderTest();
+  startTimer();
+  startBtn.disabled = true;
+  learnBtn.disabled = hardMode;  // недоступна в hardmode
+  restartBtn.disabled = true;
+  if (abortBtn) abortBtn.disabled = false;
+  updateHardButton();
+
+  if (hardMode) {
+    startQuestionTimer();
+    startHardmodeMusic();
+  } else {
+    stopHardmodeMusic();
+  }
+}
 
 startBtn.addEventListener("click", () => {
-  buildTest();
-  curIdx = 0;
-  renderTest();
-  startTimer();
-  if (hardMode) startQuestionTimer();
-  if (hardMode) startHardmodeMusic();
-  else stopHardmodeMusic();
-  setRunning(true);
-  startBtn.disabled = true;
-  learnBtn.disabled = hardMode;  // недоступна в hardmode
-  restartBtn.disabled = true;
-  if (abortBtn) abortBtn.disabled = false;
+  startQuiz();
 });
 
+if (quickStartBtn){
+  quickStartBtn.addEventListener("click", () => startQuiz());
+}
+
+if (quickHardBtn){
+  quickHardBtn.addEventListener("click", () => startQuiz({ hardOnly: true }));
+}
+
 restartBtn.addEventListener("click", () => {
-  buildTest();
-  renderTest();
-  startTimer();
-  if (hardMode) startHardmodeMusic();
-  else stopHardmodeMusic();
-  setRunning(true);
-  startBtn.disabled = true;
-  learnBtn.disabled = hardMode;  // недоступна в hardmode
-  restartBtn.disabled = true;
-  if (abortBtn) abortBtn.disabled = false;
+  startQuiz({ hardOnly: lastStartWasHardOnly && hardQuestions.size > 0 });
 });
 
 function abortTest(){
@@ -1264,15 +1437,17 @@ function abortTest(){
   elQuiz.innerHTML = "";
   elOut.style.display = "none";
   elOut.innerHTML = "";
+  appEl.classList.remove("has-output");
 
-  statusPill.textContent = "Тест прерван";
-  meta.textContent = "";
+  setStatusPill("Тест прерван");
+  setMetaText("");
 
   startBtn.disabled = false;
   restartBtn.disabled = true;
   finishBtn.disabled = true;
   learnBtn.disabled = true;
   if (abortBtn) abortBtn.disabled = true;
+  updateHardButton();
 
   setRunning(false);
 }
@@ -1327,7 +1502,6 @@ function showAnswers(){
         const label = document.createElement("div");
         label.style.width = "100%";
         const isCorrect = (i === item.correctIndex);
-        const indicator = isCorrect ? "✓" : " ";
         const color = isCorrect ? "color: #6ee7a8; font-weight: bold;" : "";
         label.innerHTML = `<span class="kbd" style="${color}">${LETTERS[i]}</span> <span style="${color}">${escapeHtml(optText)}</span>`;
 
@@ -1340,8 +1514,8 @@ function showAnswers(){
   }
 
   elQuiz.appendChild(frag);
-  statusPill.textContent = "Режим обучения";
-  meta.textContent = `Вопросов: ${TEST.length} (из ${ALL.length}). Показаны правильные ответы.`;
+  setStatusPill("Режим обучения");
+  setMetaText(`Вопросов: ${TEST.length} (из ${ALL.length}). Показаны правильные ответы.`);
   finishBtn.disabled = true;
   learnBtn.disabled = true;
   backBtn.disabled = false;
@@ -1354,10 +1528,10 @@ learnBtn.addEventListener("click", showAnswers);
 function backToTest(){
   isInLearningMode = false;
   renderTest();
-  statusPill.textContent = "Тест запущен";
-  meta.textContent = `Вопросов: ${TEST.length} (из ${ALL.length}). Режим: ${mode === "mcq" ? "A–E" : "текст"}.`;
+  setStatusPill("Тест запущен");
+  setMetaText(`Вопросов: ${TEST.length} (из ${ALL.length}). Режим: ${mode === "mcq" ? "A–E" : "текст"}.`);
   finishBtn.disabled = false;
-  learnBtn.disabled = false;
+  learnBtn.disabled = hardMode;
   backBtn.disabled = true;
   restartBtn.disabled = false;
   if (abortBtn) abortBtn.disabled = false;
@@ -1366,14 +1540,7 @@ function backToTest(){
 backBtn.addEventListener("click", backToTest);
 
 hardBtn.addEventListener("click", () => {
-  if (buildTestHard() === false) return;
-  renderTest();
-  startTimer();
-  startBtn.disabled = true;
-  learnBtn.disabled = false;
-  restartBtn.disabled = true;
-  hardBtn.disabled = true;
-  if (abortBtn) abortBtn.disabled = false;
+  startQuiz({ hardOnly: true });
 });
 
 const TIME_EXP_EVERY_SECONDS = 600; // 10 минут
@@ -1465,10 +1632,22 @@ if (rankDisplay){
   rankDisplay.textContent = rank;
 }
 
+if (dashExp){
+  dashExp.textContent = String(totalExp);
+}
+if (dashRankMini){
+  dashRankMini.textContent = rank;
+}
+if (dashTime){
+  dashTime.textContent = `${minutes}:${String(seconds).padStart(2, "0")}`;
+}
 
   // Пройдено тестов
   if (testsCompletedDisplay){
     testsCompletedDisplay.textContent = String(stats.tests_completed);
+  }
+  if (dashTests){
+    dashTests.textContent = String(stats.tests_completed);
   }
 }
 
@@ -1582,20 +1761,16 @@ function closeAnalyticsModal(){
 }
 
 function renderAnalytics(){
-  const currentBankKey = localStorage.getItem("quiz_bank") || "gaziz";
+  const currentBankKey = resolveBankKey(localStorage.getItem("quiz_bank") || DEFAULT_BANK_KEY);
   const allStats = loadQStats();
   const sessions = loadSessions(currentBankKey);
   const records = loadHardmodeRecords(currentBankKey);
-  
-  console.log("renderAnalytics: currentBankKey =", currentBankKey);
-  console.log("renderAnalytics: allStats =", allStats);
-  console.log("renderAnalytics: bankStats =", allStats[currentBankKey]);
-  
+
   const analyticsContent = document.getElementById("analyticsContent");
   if (!analyticsContent) return;
   
   // Создаём map вопросов из текущего банка
-  const questionMap = new Map(ALL.map(x => [x.n, x.q]));
+  const questionMap = getQuestionMapForBank(currentBankKey);
   
   const parts = [];
   
@@ -1603,9 +1778,7 @@ function renderAnalytics(){
   parts.push(`<div class="analytics-filters">`);
   parts.push(`<div class="analytics-filters__row">`);
   parts.push(`<label class="analytics-filter"><span>Банк:</span><select id="analyticsBankSelect" class="analytics-filter__input">`);
-  parts.push(`<option value="gaziz" ${currentBankKey === "gaziz" ? "selected" : ""}>Газиз</option>`);
-  parts.push(`<option value="kundyz" ${currentBankKey === "kundyz" ? "selected" : ""}>Кундыз</option>`);
-  parts.push(`<option value="gaziz_kundyz" ${currentBankKey === "gaziz_kundyz" ? "selected" : ""}>Газиз + Кундыз</option>`);
+  parts.push(`<option value="${DEFAULT_BANK_KEY}" selected>${getBankLabel(DEFAULT_BANK_KEY)}</option>`);
   parts.push(`</select></label>`);
   
   parts.push(`<label class="analytics-filter"><span>Мин. показов:</span><input type="number" id="analyticsMinShown" class="analytics-filter__input" value="3" min="1"></label>`);
@@ -1648,8 +1821,6 @@ function renderAnalytics(){
   const filterMin = false; // по умолчанию фильтр выключен, чтобы видеть все данные
   
   let filtered = problemQuestions.filter(q => !filterMin || q.shown >= minShown);
-  
-  console.log(`renderAnalytics: problemQuestions.length = ${problemQuestions.length}, filtered.length = ${filtered.length}, minShown = ${minShown}, filterMin = ${filterMin}`);
   
   filtered.sort((a, b) => {
     if (sortBy === "wrong"){
@@ -1719,7 +1890,7 @@ function renderAnalytics(){
       const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
       const elapsedTime = fmt(s.elapsedMs);
       const modeText = s.mode === "mcq" ? "A–E" : "Текст";
-      const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+      const bankName = getBankLabel(s.bankKey);
       const hardmodeMark = s.hardMode ? "⚡" : "—";
       const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
       parts.push(`<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`);
@@ -1734,7 +1905,7 @@ function renderAnalytics(){
         const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
         const elapsedTime = fmt(s.elapsedMs);
         const modeText = s.mode === "mcq" ? "A–E" : "Текст";
-        const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+        const bankName = getBankLabel(s.bankKey);
         const hardmodeMark = s.hardMode ? "⚡" : "—";
         const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
         parts.push(`<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`);
@@ -1786,7 +1957,7 @@ function renderAnalytics(){
         const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
         const elapsedTime = fmt(s.elapsedMs);
         const modeText = s.mode === "mcq" ? "A–E" : "Текст";
-        const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+        const bankName = getBankLabel(s.bankKey);
         const hardmodeMark = s.hardMode ? "⚡" : "—";
         const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
         sessionsHtml += `<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`;
@@ -1801,7 +1972,7 @@ function renderAnalytics(){
           const time = new Date(s.ts).toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" });
           const elapsedTime = fmt(s.elapsedMs);
           const modeText = s.mode === "mcq" ? "A–E" : "Текст";
-          const bankName = s.bankKey === "gaziz" ? "Газиз" : s.bankKey === "kundyz" ? "Кундыз" : s.bankKey === "gaziz_kundyz" ? "Газиз+Кундыз" : s.bankKey;
+          const bankName = getBankLabel(s.bankKey);
           const hardmodeMark = s.hardMode ? "⚡" : "—";
           const percentClass = s.percent >= 95 ? "ok" : s.percent >= 60 ? "" : "bad";
           sessionsHtml += `<tr><td>${date}<br><span class="muted small">${time}</span></td><td>${bankName}</td><td>${modeText}</td><td class="${percentClass}">${s.percent}%</td><td>${s.questionsCount}</td><td>${elapsedTime}</td><td>${hardmodeMark}</td></tr>`;
@@ -1838,7 +2009,7 @@ function renderAnalytics(){
     
     const currentAllStats = loadQStats();
     const stats = currentAllStats[bankKey] || {};
-    const qMap = new Map(ALL.map(x => [x.n, x.q]));
+    const qMap = getQuestionMapForBank(bankKey);
     
     // Обновляем историю сессий при смене банка
     updateSessions(bankKey);
