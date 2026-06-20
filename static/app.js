@@ -128,6 +128,11 @@ const timerText = document.getElementById("timerText");
 const appEl = document.querySelector(".app");
 const translateBtn = document.getElementById("translateBtn");
 
+const TRANSLATE_DEFAULT_RESET_KEY = "quiz_translate_default_en_v1";
+if (localStorage.getItem(TRANSLATE_DEFAULT_RESET_KEY) !== "1"){
+  localStorage.setItem("quiz_translate_ru", "0");
+  localStorage.setItem(TRANSLATE_DEFAULT_RESET_KEY, "1");
+}
 let translateRu = localStorage.getItem("quiz_translate_ru") === "1";
 const RU_TRANSLATION_CACHE_KEY = "quiz_ru_translation_cache_v1";
 let ruTranslationCache = {};
