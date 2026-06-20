@@ -87,15 +87,15 @@ let ALL = parseBank(RAW_BANK, ANSWER_TEXT);
 
 /** ========= НАСТРОЙКИ ========= */
 const LETTERS = ["A","B","C","D","E"];
-const DEFAULT_BANK_KEY = "python_devops_networks_no_guess";
-const SIMPLE_BANK_KEY = "python_devops_networks_hard";
+const DEFAULT_BANK_KEY = "moo_web_technologies_ws";
+const SIMPLE_BANK_KEY = "pm07_content_management_systems";
 const BANK_LABELS = {
-  [DEFAULT_BANK_KEY]: "Gaziz 2.0",
-  [SIMPLE_BANK_KEY]: "Gaziz 2.0 Simple"
+  [DEFAULT_BANK_KEY]: "MOO Web-технологии (WS)",
+  [SIMPLE_BANK_KEY]: "PM 07 · CMS"
 };
 const BANK_MAX_SIZES = {
-  [DEFAULT_BANK_KEY]: 350,
-  [SIMPLE_BANK_KEY]: 350
+  [DEFAULT_BANK_KEY]: 234,
+  [SIMPLE_BANK_KEY]: 266
 };
 
 const elQuiz = document.getElementById("quiz");
@@ -1904,7 +1904,7 @@ const hardModePassed = hardMode && TEST.length >= 50 && percent === 100;
 let achievedTier = 0;
 if (hardModePassed) {
   achievedTier = 1;                 // 50–99  -> +
-  if (TEST.length >= 290) achievedTier = 4;      // ⭐
+  if (TEST.length >= 266) achievedTier = 4;      // ⭐
   else if (TEST.length >= 200) achievedTier = 3;      // +++
   else if (TEST.length >= 100) achievedTier = 2; // ++
 
