@@ -1403,6 +1403,41 @@ details > :not(summary){
   line-height:1.45;
 }
 
+.general-command__reply{
+  display:grid;
+  gap:8px;
+  margin-top:4px;
+}
+
+.general-command__reply p{
+  margin:0;
+  min-height:20px;
+  color:var(--muted);
+  font-size:12.5px;
+  line-height:1.45;
+}
+
+.general-command #generalCommandMic{
+  width:max-content;
+  min-width:190px;
+  min-height:38px;
+  margin-top:0;
+  border-color:rgba(255,255,255,.18);
+  background:rgba(255,255,255,.06);
+  box-shadow:none;
+}
+
+.general-command #generalCommandMic.is-listening{
+  border-color:rgba(255,48,76,.80);
+  background:rgba(211,38,58,.24);
+  box-shadow:0 0 24px rgba(211,38,58,.30);
+}
+
+.general-command #generalCommandMic:disabled{
+  opacity:.55;
+  cursor:not-allowed;
+}
+
 .general-command button{
   width:max-content;
   min-width:150px;
@@ -3044,6 +3079,10 @@ h1,
   }
 
   .general-command button{
+    width:100%;
+  }
+
+  .general-command #generalCommandMic{
     width:100%;
   }
 

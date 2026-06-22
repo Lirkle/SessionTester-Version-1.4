@@ -2048,6 +2048,10 @@ function ensureGeneralCommandDialog(){
         <h2 id="generalCommandTitle">\u041f\u0440\u0438\u043a\u0430\u0437</h2>
         <p id="generalCommandMessage" class="general-command__message"></p>
         <p id="generalCommandReason" class="general-command__reason"></p>
+        <div class="general-command__reply">
+          <button id="generalCommandMic" type="button" class="secondary">\u041e\u0442\u0432\u0435\u0442\u0438\u0442\u044c \u0433\u043e\u043b\u043e\u0441\u043e\u043c</button>
+          <p id="generalCommandTranscript">\u041c\u043e\u0436\u0435\u0448\u044c \u0441\u043a\u0430\u0437\u0430\u0442\u044c: \u00ab\u043f\u0440\u0438\u043d\u044f\u043b\u00bb, \u00ab\u043d\u0430\u0447\u0430\u0442\u044c\u00bb \u0438\u043b\u0438 \u00ab\u0434\u0430\u00bb.</p>
+        </div>
         <button id="generalCommandOk" type="button">\u041f\u0440\u0438\u043d\u044f\u043b</button>
       </div>
     </section>
@@ -2056,12 +2060,39 @@ function ensureGeneralCommandDialog(){
   return dialog;
 }
 
+function getSpeechRecognitionCtor(){
+  return window.SpeechRecognition || window.webkitSpeechRecognition || null;
+}
+
+function isAffirmativeVoiceReply(text){
+  const normalized = String(text || "").toLowerCase().replace(/[.,!?;:]/g, " ").replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
+  return [
+    "принял",
+    "понял",
+    "начать",
+    "начинаем",
+    "да",
+    "есть",
+    "согласен",
+    "запускай",
+    "погнали",
+    "готов",
+    "ок",
+    "okay",
+    "yes",
+  ].some(phrase => normalized === phrase || normalized.includes(` ${phrase} `) || normalized.startsWith(`${phrase} `) || normalized.endsWith(` ${phrase}`));
+}
+
 function showGeneralCommandDialog(action, context = {}){
   const dialog = ensureGeneralCommandDialog();
   const title = dialog.querySelector("#generalCommandTitle");
   const message = dialog.querySelector("#generalCommandMessage");
   const reason = dialog.querySelector("#generalCommandReason");
   const ok = dialog.querySelector("#generalCommandOk");
+  const mic = dialog.querySelector("#generalCommandMic");
+  const transcript = dialog.querySelector("#generalCommandTranscript");
+  const Recognition = getSpeechRecognitionCtor();
 
   const type = String(action?.type || "none");
   const cleanReason = String(action?.reason || "").trim();
@@ -2077,22 +2108,147 @@ function showGeneralCommandDialog(action, context = {}){
   }
 
   return new Promise(resolve => {
-    const close = () => {
+    let recognition = null;
+    let listening = false;
+    let closeResult = true;
+    let finalTranscript = "";
+    let waitingForAi = false;
+    let closing = false;
+
+    const close = (result = closeResult) => {
+      closing = true;
+      if (recognition && listening) {
+        try { recognition.stop(); } catch {}
+      }
+      listening = false;
       dialog.classList.remove("is-visible");
       document.body.classList.remove("general-command-open");
-      ok?.removeEventListener("click", close);
+      ok?.removeEventListener("click", onOkClick);
+      mic?.removeEventListener("click", onMicClick);
       document.removeEventListener("keydown", onKey);
-      setTimeout(() => resolve(), 180);
+      setTimeout(() => resolve(result), 180);
+    };
+    const setTranscript = text => {
+      if (transcript) transcript.textContent = text;
+    };
+    const setWaiting = value => {
+      waitingForAi = value;
+      if (mic) mic.disabled = value || !Recognition;
+      if (ok) ok.disabled = value;
+    };
+    const askGeneralAboutReply = async text => {
+      const reply = String(text || "").trim();
+      if (!reply || waitingForAi || closing) return;
+      setWaiting(true);
+      setTranscript("\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0434\u0443\u043c\u0430\u0435\u0442 \u043d\u0430\u0434 \u043e\u0442\u0432\u0435\u0442\u043e\u043c...");
+      try {
+        const data = await apiJson("/api/coach-message", {
+          method: "POST",
+          body: JSON.stringify({
+            event: "commandReply",
+            tone: "strict",
+            localMessage: context.message || coachState?.lastMessage || "",
+            userReply: reply,
+            proposedAction: {
+              type,
+              size: Number(action?.size || 3) || 3,
+              reason: cleanReason,
+            },
+            stats: Object.assign({}, getAiCoachStats(), {
+              proposedSize: Number(action?.size || 3) || 3,
+            }),
+            problemMode: Boolean(state.problemReview?.active || state.problemReview?.locked),
+          }),
+        });
+        if (data?.message && message) message.textContent = data.message;
+        const nextAction = data?.action && typeof data.action === "object" ? data.action : { type: "none" };
+        if (String(nextAction.type || "none") === "start_micro_drill") {
+          closeResult = true;
+          setTranscript("\u041f\u0440\u0438\u043a\u0430\u0437 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d. \u0417\u0430\u043f\u0443\u0441\u043a\u0430\u044e \u043e\u0442\u0440\u0430\u0431\u043e\u0442\u043a\u0443.");
+          setTimeout(() => close(true), 650);
+          return;
+        }
+        closeResult = false;
+        if (ok) {
+          ok.textContent = "\u0417\u0430\u043a\u0440\u044b\u0442\u044c";
+          ok.disabled = false;
+        }
+        setTranscript("\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u0438\u043d\u044f\u043b \u043e\u0442\u0432\u0435\u0442. \u041e\u0442\u0440\u0430\u0431\u043e\u0442\u043a\u0430 \u043d\u0435 \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442\u0441\u044f.");
+      } catch (error) {
+        console.warn("[coach] voice reply failed:", error);
+        closeResult = false;
+        if (message) message.textContent = error?.message || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043d\u0435 \u0434\u043e\u0441\u0442\u0443\u0447\u0430\u043b\u0441\u044f \u0434\u043e \u0448\u0442\u0430\u0431\u0430.";
+        if (ok) {
+          ok.textContent = "\u0417\u0430\u043a\u0440\u044b\u0442\u044c";
+          ok.disabled = false;
+        }
+        setTranscript("\u041e\u0442\u0432\u0435\u0442 \u043d\u0435 \u0443\u0448\u0435\u043b \u0432 OpenAI. \u0421\u043c\u043e\u0442\u0440\u0438 \u043a\u043e\u043d\u0441\u043e\u043b\u044c \u0438 \u043b\u043e\u0433\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.");
+      } finally {
+        setWaiting(false);
+      }
+    };
+    const onMicClick = () => {
+      if (!Recognition || listening) return;
+      recognition = new Recognition();
+      recognition.lang = "ru-RU";
+      recognition.interimResults = true;
+      recognition.continuous = false;
+
+      recognition.onstart = () => {
+        listening = true;
+        mic?.classList.add("is-listening");
+        if (mic) mic.textContent = "\u0421\u043b\u0443\u0448\u0430\u044e...";
+        setTranscript("\u0413\u043e\u0432\u043e\u0440\u0438. \u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0441\u043b\u0443\u0448\u0430\u0435\u0442.");
+      };
+      recognition.onresult = event => {
+        const text = Array.from(event.results)
+          .map(result => result[0]?.transcript || "")
+          .join(" ")
+          .trim();
+        if (!text) return;
+        finalTranscript = text;
+        setTranscript(text);
+      };
+      recognition.onerror = () => {
+        setTranscript("\u041c\u0438\u043a\u0440\u043e\u0444\u043e\u043d \u043d\u0435 \u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b. \u041c\u043e\u0436\u043d\u043e \u043d\u0430\u0436\u0430\u0442\u044c \u043a\u043d\u043e\u043f\u043a\u0443.");
+      };
+      recognition.onend = () => {
+        listening = false;
+        mic?.classList.remove("is-listening");
+        if (mic) mic.textContent = "\u041e\u0442\u0432\u0435\u0442\u0438\u0442\u044c \u0433\u043e\u043b\u043e\u0441\u043e\u043c";
+        if (finalTranscript && !closing) {
+          const reply = finalTranscript;
+          finalTranscript = "";
+          askGeneralAboutReply(reply);
+        }
+      };
+      try {
+        recognition.start();
+      } catch {
+        setTranscript("\u041c\u0438\u043a\u0440\u043e\u0444\u043e\u043d \u0443\u0436\u0435 \u0437\u0430\u043d\u044f\u0442. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u0435\u0449\u0435 \u0440\u0430\u0437.");
+      }
     };
     const onKey = event => {
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
-        close();
+        close(true);
       }
     };
+    const onOkClick = () => close(closeResult);
 
-    ok?.addEventListener("click", close);
+    ok?.addEventListener("click", onOkClick);
+    mic?.addEventListener("click", onMicClick);
     document.addEventListener("keydown", onKey);
+    if (mic) {
+      mic.disabled = !Recognition;
+      mic.textContent = Recognition
+        ? "\u041e\u0442\u0432\u0435\u0442\u0438\u0442\u044c \u0433\u043e\u043b\u043e\u0441\u043e\u043c"
+        : "\u041c\u0438\u043a\u0440\u043e\u0444\u043e\u043d \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d";
+    }
+    setTranscript(Recognition
+      ? "\u041e\u0442\u0432\u0435\u0442\u044c \u0433\u043e\u043b\u043e\u0441\u043e\u043c: \u0433\u0435\u043d\u0435\u0440\u0430\u043b \u0441\u0430\u043c \u0440\u0435\u0448\u0438\u0442, \u0447\u0442\u043e \u0434\u0435\u043b\u0430\u0442\u044c."
+      : "\u0411\u0440\u0430\u0443\u0437\u0435\u0440 \u043d\u0435 \u0434\u0430\u043b \u0440\u0430\u0441\u043f\u043e\u0437\u043d\u0430\u0432\u0430\u043d\u0438\u0435 \u0440\u0435\u0447\u0438. \u041e\u0442\u0432\u0435\u0442\u044c \u043a\u043d\u043e\u043f\u043a\u043e\u0439."
+    );
     document.body.classList.add("general-command-open");
     dialog.classList.add("is-visible");
     setTimeout(() => ok?.focus(), 60);
@@ -2133,10 +2289,14 @@ async function applyAiCoachAction(action, context = {}){
     }
     const review = prepareAiMicroDrill(action.size, reason);
     if (!review) return;
-    await showGeneralCommandDialog(
+    const shouldStart = await showGeneralCommandDialog(
       Object.assign({}, action, { size: review.questionIds.length }),
       context
     );
+    if (!shouldStart) {
+      logAiCoachAction({ type, skipped: true, reason: "voice_reply_declined" });
+      return;
+    }
     startAiMicroDrill(review, reason);
   }
 }
