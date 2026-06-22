@@ -1080,6 +1080,28 @@ details > :not(summary){
     rgba(14,20,28,.82);
   box-shadow:0 16px 36px rgba(0,0,0,.22);
   backdrop-filter:blur(14px);
+  position:relative;
+  overflow:hidden;
+  transition:border-color .18s ease, box-shadow .18s ease, background .18s ease, transform .18s ease;
+}
+
+.coach-panel::before{
+  content:"";
+  position:absolute;
+  inset:0 auto 0 0;
+  width:3px;
+  background:rgba(255,255,255,.18);
+  opacity:.7;
+}
+
+.coach-panel::after{
+  content:"";
+  position:absolute;
+  inset:-45% -20%;
+  pointer-events:none;
+  opacity:0;
+  background:radial-gradient(circle at 14% 50%,rgba(255,74,93,.34),transparent 34%);
+  transition:opacity .18s ease;
 }
 
 .coach-panel__badge{
@@ -1094,6 +1116,9 @@ details > :not(summary){
   font-size:13px;
   font-weight:900;
   letter-spacing:0;
+  position:relative;
+  z-index:1;
+  transition:background .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease;
 }
 
 .coach-panel__top{
@@ -1102,6 +1127,11 @@ details > :not(summary){
   justify-content:space-between;
   gap:10px;
   margin-bottom:4px;
+}
+
+.coach-panel__body{
+  position:relative;
+  z-index:1;
 }
 
 .coach-panel__top strong{
@@ -1129,6 +1159,11 @@ details > :not(summary){
 
 .coach-panel[data-tone="strict"]{
   border-color:rgba(235,151,48,.42);
+  box-shadow:0 0 0 1px rgba(235,151,48,.14), 0 18px 38px rgba(0,0,0,.26);
+}
+
+.coach-panel[data-tone="strict"]::before{
+  background:#eb9730;
 }
 
 .coach-panel[data-tone="strict"] .coach-panel__badge{
@@ -1136,30 +1171,88 @@ details > :not(summary){
 }
 
 .coach-panel[data-tone="drill"]{
-  border-color:rgba(211,38,58,.58);
-  box-shadow:0 0 0 1px rgba(211,38,58,.12), 0 18px 38px rgba(0,0,0,.28);
+  border-color:rgba(255,48,76,.82);
+  background:
+    linear-gradient(135deg,rgba(211,38,58,.18),rgba(255,255,255,.025)),
+    rgba(16,18,25,.90);
+  box-shadow:
+    0 0 0 1px rgba(255,48,76,.24),
+    0 0 28px rgba(211,38,58,.20),
+    0 18px 42px rgba(0,0,0,.34);
+}
+
+.coach-panel[data-tone="drill"]::before{
+  width:5px;
+  background:#ff304c;
+  box-shadow:0 0 18px rgba(255,48,76,.7);
+}
+
+.coach-panel[data-tone="drill"]::after{
+  opacity:.8;
 }
 
 .coach-panel[data-tone="drill"] .coach-panel__badge,
 .coach-panel[data-tone="danger"] .coach-panel__badge{
-  background:rgba(211,38,58,.22);
+  border-color:rgba(255,74,93,.52);
+  background:rgba(211,38,58,.34);
+  box-shadow:0 0 18px rgba(211,38,58,.28);
 }
 
 .coach-panel[data-tone="danger"]{
-  border-color:rgba(255,74,93,.74);
+  border-color:rgba(255,42,70,.96);
   background:
-    linear-gradient(135deg,rgba(211,38,58,.18),rgba(255,255,255,.025)),
-    rgba(14,20,28,.88);
+    linear-gradient(135deg,rgba(211,38,58,.30),rgba(60,8,16,.25)),
+    rgba(14,18,26,.94);
+  box-shadow:
+    0 0 0 1px rgba(255,42,70,.34),
+    0 0 34px rgba(255,42,70,.32),
+    0 22px 48px rgba(0,0,0,.42);
+}
+
+.coach-panel[data-tone="danger"]::before{
+  width:6px;
+  background:#ff2a46;
+  box-shadow:0 0 24px rgba(255,42,70,.9);
+}
+
+.coach-panel[data-tone="danger"]::after{
+  opacity:1;
+}
+
+.coach-panel[data-tone="danger"] .coach-panel__badge{
+  transform:scale(1.04);
 }
 
 .coach-panel.is-pulsing{
   animation:coachPulse .42s ease-out;
 }
 
+.coach-panel[data-tone="drill"].is-pulsing{
+  animation:coachWarnPulse .56s ease-out;
+}
+
+.coach-panel[data-tone="danger"].is-pulsing{
+  animation:coachDangerPulse .68s ease-out;
+}
+
 @keyframes coachPulse{
   0%{ transform:translateY(0); }
   35%{ transform:translateY(-2px); }
   100%{ transform:translateY(0); }
+}
+
+@keyframes coachWarnPulse{
+  0%{ transform:translateY(0); box-shadow:0 0 0 1px rgba(255,48,76,.24), 0 0 18px rgba(211,38,58,.18), 0 18px 42px rgba(0,0,0,.34); }
+  35%{ transform:translateY(-3px); box-shadow:0 0 0 1px rgba(255,48,76,.52), 0 0 34px rgba(211,38,58,.36), 0 20px 46px rgba(0,0,0,.38); }
+  100%{ transform:translateY(0); }
+}
+
+@keyframes coachDangerPulse{
+  0%{ transform:translateX(0); }
+  18%{ transform:translateX(-3px); }
+  36%{ transform:translateX(3px); }
+  54%{ transform:translateX(-2px); }
+  100%{ transform:translateX(0); }
 }
 
 .auth-gate,
@@ -2713,6 +2806,25 @@ h1,
 
   .coach-panel p{
     font-size:12px;
+  }
+
+  .coach-panel[data-tone="drill"],
+  .coach-panel[data-tone="danger"]{
+    border-color:rgba(255,48,76,.76) !important;
+    background:#17151d !important;
+  }
+
+  .coach-panel[data-tone="drill"]::before,
+  .coach-panel[data-tone="danger"]::before{
+    display:block !important;
+    animation:none !important;
+    width:4px;
+    background:#ff304c;
+    box-shadow:none;
+  }
+
+  .coach-panel[data-tone="danger"]{
+    border-color:#ff304c !important;
   }
 
   .auth-gate,

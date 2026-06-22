@@ -1,4 +1,4 @@
-const http = require("node:http");
+﻿const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
@@ -30,7 +30,20 @@ const PORT = Number(process.env.PORT || 8765);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.5";
 const SESSION_COOKIE = "session_tester_sid";
-const DATABASE_URL = process.env.DATABASE_URL || "";
+const AI_COACH_UNAVAILABLE_MESSAGE =
+  "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u0431\u0435\u0437 \u0441\u0432\u044f\u0437\u0438: OpenAI \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043b\u044e\u0447 \u0438\u043b\u0438 \u043b\u043e\u0433\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.";
+const DATABASE_URL =
+  process.env.DATABASE_URL ||
+  process.env.DATABASE_PRIVATE_URL ||
+  process.env.DATABASE_PUBLIC_URL ||
+  "";
+const DATABASE_SOURCE = process.env.DATABASE_URL
+  ? "DATABASE_URL"
+  : process.env.DATABASE_PRIVATE_URL
+    ? "DATABASE_PRIVATE_URL"
+    : process.env.DATABASE_PUBLIC_URL
+      ? "DATABASE_PUBLIC_URL"
+      : "";
 const pgPool = DATABASE_URL
   ? new Pool({
       connectionString: DATABASE_URL,
@@ -302,9 +315,10 @@ async function handleCoachMessage(req, res){
   }
 
   if (!OPENAI_API_KEY) {
+    console.warn("[coach] OpenAI disabled: OPENAI_API_KEY is missing");
     sendJson(res, 503, {
       error: "missing_openai_api_key",
-      message: null,
+      message: AI_COACH_UNAVAILABLE_MESSAGE,
     });
     return;
   }
@@ -336,10 +350,11 @@ async function handleCoachMessage(req, res){
           {
             role: "system",
             content:
-              "You are a quiz drill general. Reply in Russian. " +
-              "Be cinematic and strict when tone is drill or danger, but do not insult, humiliate, use slurs, or profanity. " +
-              "Never reveal the correct answer during an active question unless the event is finish or problemCleared. " +
-              "Return only one short coach line, 1-2 sentences, no markdown.",
+              "You are a human-feeling quiz drill general. Reply only in natural Russian. " +
+              "Sound like a character next to the user, not an AI assistant: short, direct, alive, with personality. " +
+              "Tone kind is warm, strict pushes focus, drill scolds carelessness, danger is visibly harsher. " +
+              "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
+              "Return one short coach line, 1-2 sentences, no markdown.",
           },
           prompt,
         ],
@@ -348,19 +363,34 @@ async function handleCoachMessage(req, res){
 
     const data = await apiRes.json().catch(() => ({}));
     if (!apiRes.ok) {
+      console.warn("[coach] OpenAI error:", {
+        status: apiRes.status,
+        detail: data?.error?.message || apiRes.statusText,
+      });
       sendJson(res, apiRes.status, {
         error: "openai_error",
         detail: data?.error?.message || apiRes.statusText,
+        message: AI_COACH_UNAVAILABLE_MESSAGE,
       });
       return;
     }
 
     const message = extractOutputText(data).replace(/\s+/g, " ").trim().slice(0, 320);
+    if (!message) {
+      console.warn("[coach] OpenAI returned an empty coach message");
+      sendJson(res, 502, {
+        error: "openai_empty_message",
+        message: AI_COACH_UNAVAILABLE_MESSAGE,
+      });
+      return;
+    }
     sendJson(res, 200, { message });
   } catch (error) {
+    console.warn("[coach] OpenAI request failed:", error);
     sendJson(res, 502, {
       error: "openai_request_failed",
       detail: error.message,
+      message: AI_COACH_UNAVAILABLE_MESSAGE,
     });
   }
 }
@@ -524,7 +554,11 @@ initDatabase()
   .then(() => {
     server.listen(PORT, () => {
       console.log(`SessionTester running at http://127.0.0.1:${PORT}/`);
-      console.log(pgPool ? "Postgres leaderboard enabled" : "JSON leaderboard enabled (local fallback)");
+      console.log(
+        pgPool
+          ? `Postgres leaderboard enabled (${DATABASE_SOURCE})`
+          : "JSON leaderboard enabled (local fallback)"
+      );
       console.log(OPENAI_API_KEY ? `OpenAI coach enabled (${OPENAI_MODEL})` : "OpenAI coach disabled: set OPENAI_API_KEY");
     });
   })
