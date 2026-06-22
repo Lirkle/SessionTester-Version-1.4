@@ -419,6 +419,64 @@ function parseCoachDecision(rawText){
   }
 }
 
+function isDisrespectfulCoachText(text){
+  const normalized = String(text || "")
+    .toLowerCase()
+    .replace(/\u0451/g, "\u0435")
+    .replace(/[^a-z\u0430-\u044f0-9\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  return [
+    "\u0438\u0434\u0438\u043e\u0442",
+    "\u0434\u0435\u0431\u0438\u043b",
+    "\u0442\u0443\u043f\u043e\u0439",
+    "\u0442\u0443\u043f\u0438\u0446",
+    "\u0434\u0443\u0440\u0430\u043a",
+    "\u043b\u043e\u0445",
+    "\u0447\u043c\u043e",
+    "\u0443\u0431\u043e\u0433",
+    "\u043c\u0440\u0430\u0437",
+    "\u0433\u0430\u043d\u0434\u043e\u043d",
+    "\u0443\u0435\u0431",
+    "\u0445\u0443\u0439",
+    "\u0445\u0443\u0435",
+    "\u043f\u0438\u0437\u0434",
+    "\u0435\u0431\u0430\u043d",
+    "\u0435\u0431\u043b",
+    "\u0441\u043e\u0441\u0438",
+    "\u0437\u0430\u0442\u043a\u043d\u0438\u0441\u044c",
+    "\u0448\u043b\u044e\u0445",
+    "\u0431\u043b\u044f\u0434",
+    "\u043c\u0430\u0442\u044c",
+    "\u043c\u0430\u043c\u043a",
+    "\u043c\u0430\u043c\u0430",
+    "\u043c\u0430\u043c\u0430\u0448",
+    "shut up",
+    "stupid",
+    "idiot",
+    "dumb"
+  ].some(token => normalized.includes(token));
+}
+
+function payloadHasCoachDisrespect(payload){
+  return Boolean(payload?.stats?.userDisrespectedGeneral)
+    || isDisrespectfulCoachText(payload?.userQuestion)
+    || isDisrespectfulCoachText(payload?.userReply);
+}
+
+function coachDisciplineFallback(){
+  return {
+    message: "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u0438\u043d\u044f\u043b \u0434\u043e\u043a\u043b\u0430\u0434: \u044f\u0437\u044b\u043a \u0443 \u0442\u0435\u0431\u044f \u0431\u044b\u0441\u0442\u0440\u0435\u0435 \u043c\u043e\u0437\u0433\u0430. \u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0437\u0430\u043a\u0440\u044b\u0442\u044b, \u0442\u0435\u043f\u0435\u0440\u044c \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0448\u044c \u0433\u043e\u043b\u043e\u0432\u043e\u0439.",
+    action: {
+      type: "discipline_penalty",
+      size: 3,
+      reason: "first direct disrespect",
+      visual: "cards",
+    },
+  };
+}
+
 function safeCoachPayload(input){
   const text = value => String(value ?? "").slice(0, 900);
   return {
@@ -468,6 +526,7 @@ async function handleCoachMessage(req, res){
     sendJson(res, 400, { error: "bad_json" });
     return;
   }
+  const userDisrespectedGeneral = payloadHasCoachDisrespect(payload);
 
   const prompt = {
     role: "user",
@@ -494,7 +553,7 @@ async function handleCoachMessage(req, res){
               "Tone kind is warm and human, strict pushes focus, drill scolds carelessness, danger is harsher but still controlled. " +
               "If the user insults, mocks, or provokes the general in userQuestion or userReply, answer with sharper sarcastic military banter and put them back on task. Be biting and memorable, but do not use profanity, slurs, threats, humiliation, or personal attacks. On the first direct insult or disrespectful message, you must return action.type discipline_penalty to remove live hints until the next test and optionally set action.visual to topbar|sidebar|cards|panel|tilt; never block answering the test. Use stats.coachMemory and stats.userDisrespectedGeneral to remember prior behavior. " +
               "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
-              "If event is liveHint, the user is asking for help during an active question. You may give a hint, explain the concept/process, or refuse if they ask for the exact answer. Never reveal the correct option letter, exact answer text, or eliminate options too directly during liveHint. For liveHint always return action.type none. " +
+              "If event is liveHint, the user is asking for help during an active question. You may give a hint, explain the concept/process, or refuse if they ask for the exact answer. Never reveal the correct option letter, exact answer text, or eliminate options too directly during liveHint. For liveHint return action.type none unless the user is disrespectful; disrespect must override this and return discipline_penalty. " +
               "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"short internal reason\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
               "Never pause, block, lock, or slow the user during a test. Use boost_problem_question only after wrong/unanswered/hardFail. Use start_micro_drill only after finish/problemRound when stats show weak spots; choose size from 3 to 10 based on problemCandidates. " +
               "After finish, if percent is 60 or lower, wrongStreak is 8 or higher, or missedStreak is 4 or higher, and problemCandidates is at least 3, strongly prefer start_micro_drill instead of none. " +
@@ -511,6 +570,10 @@ async function handleCoachMessage(req, res){
         status: apiRes.status,
         detail: data?.error?.message || apiRes.statusText,
       });
+      if (userDisrespectedGeneral) {
+        sendJson(res, 200, coachDisciplineFallback());
+        return;
+      }
       sendJson(res, apiRes.status, {
         error: "openai_error",
         detail: data?.error?.message || apiRes.statusText,
@@ -522,11 +585,18 @@ async function handleCoachMessage(req, res){
     const decision = parseCoachDecision(extractOutputText(data));
     if (!decision.message) {
       console.warn("[coach] OpenAI returned an empty coach message");
+      if (userDisrespectedGeneral) {
+        sendJson(res, 200, coachDisciplineFallback());
+        return;
+      }
       sendJson(res, 502, {
         error: "openai_empty_message",
         message: AI_COACH_UNAVAILABLE_MESSAGE,
       });
       return;
+    }
+    if (userDisrespectedGeneral && decision.action?.type !== "discipline_penalty") {
+      decision.action = coachDisciplineFallback().action;
     }
     console.log("[coach] decision:", {
       event: payload.event,
@@ -537,6 +607,10 @@ async function handleCoachMessage(req, res){
     sendJson(res, 200, decision);
   } catch (error) {
     console.warn("[coach] OpenAI request failed:", error);
+    if (payloadHasCoachDisrespect(payload)) {
+      sendJson(res, 200, coachDisciplineFallback());
+      return;
+    }
     sendJson(res, 502, {
       error: "openai_request_failed",
       detail: error.message,

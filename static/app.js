@@ -2266,6 +2266,46 @@ function isDisrespectfulCoachText(text){
   ].some(token => normalized.includes(token));
 }
 
+function isDisrespectfulCoachText(text){
+  const normalized = String(text || "")
+    .toLowerCase()
+    .replace(/\u0451/g, "\u0435")
+    .replace(/[^a-z\u0430-\u044f0-9\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  return [
+    "\u0438\u0434\u0438\u043e\u0442",
+    "\u0434\u0435\u0431\u0438\u043b",
+    "\u0442\u0443\u043f\u043e\u0439",
+    "\u0442\u0443\u043f\u0438\u0446",
+    "\u0434\u0443\u0440\u0430\u043a",
+    "\u043b\u043e\u0445",
+    "\u0447\u043c\u043e",
+    "\u0443\u0431\u043e\u0433",
+    "\u043c\u0440\u0430\u0437",
+    "\u0433\u0430\u043d\u0434\u043e\u043d",
+    "\u0443\u0435\u0431",
+    "\u0445\u0443\u0439",
+    "\u0445\u0443\u0435",
+    "\u043f\u0438\u0437\u0434",
+    "\u0435\u0431\u0430\u043d",
+    "\u0435\u0431\u043b",
+    "\u0441\u043e\u0441\u0438",
+    "\u0437\u0430\u0442\u043a\u043d\u0438\u0441\u044c",
+    "\u0448\u043b\u044e\u0445",
+    "\u0431\u043b\u044f\u0434",
+    "\u043c\u0430\u0442\u044c",
+    "\u043c\u0430\u043c\u043a",
+    "\u043c\u0430\u043c\u0430",
+    "\u043c\u0430\u043c\u0430\u0448",
+    "shut up",
+    "stupid",
+    "idiot",
+    "dumb"
+  ].some(token => normalized.includes(token));
+}
+
 function rememberCoachExchange(kind, text, extra = {}){
   const entry = {
     kind,
