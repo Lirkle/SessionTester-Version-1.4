@@ -123,6 +123,7 @@ const dashTime = document.getElementById("dashTime");
 const dashPreview = document.getElementById("dashPreview");
 const quickStartBtn = document.getElementById("quickStartBtn");
 const quickHardBtn = document.getElementById("quickHardBtn");
+const coachToggle = document.getElementById("coachToggle");
 
 const timerText = document.getElementById("timerText");
 const appEl = document.querySelector(".app");
@@ -1486,8 +1487,11 @@ const PROBLEM_CLEAR_STREAK = 2;
 const PROBLEM_ATTEMPT_LIMIT = 12;
 const PROBLEM_REVIEW_VERSION = 1;
 const COACH_STATE_KEY = "quiz_general_coach_v1";
+const AI_ACTION_LOG_KEY = "quiz_ai_coach_actions_v1";
+const AI_COACH_ENABLED_KEY = "quiz_ai_coach_enabled";
 const AI_COACH_UNAVAILABLE_MESSAGE =
   "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u0431\u0435\u0437 \u0441\u0432\u044f\u0437\u0438: OpenAI \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043b\u044e\u0447 \u0438\u043b\u0438 \u043b\u043e\u0433\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.";
+let aiCoachEnabled = localStorage.getItem(AI_COACH_ENABLED_KEY) !== "0";
 let coachState = null;
 
 
@@ -1540,6 +1544,17 @@ function loadCoachState(){
 function saveCoachState(){
   if (!coachState) return;
   localStorage.setItem(COACH_STATE_KEY, JSON.stringify(coachState));
+}
+
+function isAiCoachEnabled(){
+  return aiCoachEnabled;
+}
+
+function updateCoachToggleUI(){
+  if (coachToggle) coachToggle.checked = aiCoachEnabled;
+  document.body.classList.toggle("ai-coach-disabled", !aiCoachEnabled);
+  const panel = document.getElementById("coachPanel");
+  if (panel) panel.hidden = !aiCoachEnabled;
 }
 
 function getCoachTone(){
@@ -1826,7 +1841,9 @@ function ensureCoachPanel(){
   panel.id = "coachPanel";
   panel.className = "coach-panel";
   panel.innerHTML = `
-    <div class="coach-panel__badge">GEN</div>
+    <div class="coach-panel__badge" aria-hidden="true">
+      <img src="img/general-avatar.jpg" alt="">
+    </div>
     <div class="coach-panel__body">
       <div class="coach-panel__top">
         <strong id="coachTitle">Режим генерала</strong>
@@ -1846,8 +1863,13 @@ function ensureCoachPanel(){
 }
 
 function renderCoachPanel(message){
+  if (!isAiCoachEnabled()){
+    updateCoachToggleUI();
+    return;
+  }
   if (!coachState) coachState = loadCoachState();
   const panel = ensureCoachPanel();
+  panel.hidden = false;
   const title = panel.querySelector("#coachTitle");
   const tone = panel.querySelector("#coachTone");
   const msg = panel.querySelector("#coachMessage");
@@ -1885,7 +1907,128 @@ function showAiCoachUnavailable(reason, details = null, localMessage = ""){
   renderCoachPanel(AI_COACH_UNAVAILABLE_MESSAGE);
 }
 
+function getAiCoachActionLabel(type){
+  const labels = {
+    boost_problem_question: "\u041f\u0440\u0438\u043a\u0430\u0437: \u0432\u043e\u043f\u0440\u043e\u0441 \u0432 \u0443\u0441\u0438\u043b\u0435\u043d\u043d\u0443\u044e \u043e\u0442\u0440\u0430\u0431\u043e\u0442\u043a\u0443",
+    suggest_break: "\u041f\u0440\u0438\u043a\u0430\u0437: \u043a\u043e\u0440\u043e\u0442\u043a\u0430\u044f \u043f\u0430\u0443\u0437\u0430",
+    start_micro_drill: "\u041f\u0440\u0438\u043a\u0430\u0437: \u043c\u0438\u043a\u0440\u043e-\u043e\u0442\u0440\u0430\u0431\u043e\u0442\u043a\u0430"
+  };
+  return labels[type] || "\u041f\u0440\u0438\u043a\u0430\u0437 \u0433\u0435\u043d\u0435\u0440\u0430\u043b\u0430";
+}
+
+function ensureGeneralCommandDialog(){
+  let dialog = document.getElementById("generalCommandDialog");
+  if (dialog) return dialog;
+
+  dialog = document.createElement("div");
+  dialog.id = "generalCommandDialog";
+  dialog.className = "general-command";
+  dialog.innerHTML = `
+    <div class="general-command__backdrop"></div>
+    <section class="general-command__box" role="dialog" aria-modal="true" aria-labelledby="generalCommandTitle">
+      <div class="general-command__portrait">
+        <img src="img/general-avatar.jpg" alt="">
+      </div>
+      <div class="general-command__content">
+        <p class="general-command__eyebrow">\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0437\u044f\u043b \u0443\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435</p>
+        <h2 id="generalCommandTitle">\u041f\u0440\u0438\u043a\u0430\u0437</h2>
+        <p id="generalCommandMessage" class="general-command__message"></p>
+        <p id="generalCommandReason" class="general-command__reason"></p>
+        <button id="generalCommandOk" type="button">\u041f\u0440\u0438\u043d\u044f\u043b</button>
+      </div>
+    </section>
+  `;
+  document.body.appendChild(dialog);
+  return dialog;
+}
+
+function showGeneralCommandDialog(action, context = {}){
+  const dialog = ensureGeneralCommandDialog();
+  const title = dialog.querySelector("#generalCommandTitle");
+  const message = dialog.querySelector("#generalCommandMessage");
+  const reason = dialog.querySelector("#generalCommandReason");
+  const ok = dialog.querySelector("#generalCommandOk");
+
+  const type = String(action?.type || "none");
+  const cleanReason = String(action?.reason || "").trim();
+  if (title) title.textContent = getAiCoachActionLabel(type);
+  if (message) message.textContent = context.message || coachState?.lastMessage || "";
+  if (reason) {
+    reason.textContent = cleanReason
+      ? `\u0420\u0435\u0448\u0435\u043d\u0438\u0435: ${cleanReason}`
+      : "\u0420\u0435\u0448\u0435\u043d\u0438\u0435: \u0441\u043c\u0435\u043d\u0430 \u043f\u043b\u0430\u043d\u0430 \u0442\u0440\u0435\u043d\u0438\u0440\u043e\u0432\u043a\u0438.";
+  }
+
+  return new Promise(resolve => {
+    const close = () => {
+      dialog.classList.remove("is-visible");
+      document.body.classList.remove("general-command-open");
+      ok?.removeEventListener("click", close);
+      document.removeEventListener("keydown", onKey);
+      setTimeout(() => resolve(), 180);
+    };
+    const onKey = event => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        close();
+      }
+    };
+
+    ok?.addEventListener("click", close);
+    document.addEventListener("keydown", onKey);
+    document.body.classList.add("general-command-open");
+    dialog.classList.add("is-visible");
+    setTimeout(() => ok?.focus(), 60);
+  });
+}
+
+async function applyAiCoachAction(action, context = {}){
+  if (!isAiCoachEnabled()) return;
+  if (!action || typeof action !== "object") return;
+  const type = String(action.type || "none");
+  if (type === "none") return;
+
+  const reason = String(action.reason || "");
+  const item = context.data?.item || TEST[curIdx] || null;
+  const allowed = new Set(["boost_problem_question", "suggest_break", "start_micro_drill"]);
+  if (!allowed.has(type)) {
+    logAiCoachAction({ type, skipped: true, reason: "unknown_action" });
+    return;
+  }
+
+  if (type === "boost_problem_question") {
+    if (!["wrong", "unanswered", "hardFail"].includes(context.event)) {
+      logAiCoachAction({ type, skipped: true, reason: "event_not_allowed" });
+      return;
+    }
+    if (!item || item.bankN == null) {
+      logAiCoachAction({ type, skipped: true, reason: "missing_question" });
+      return;
+    }
+    await showGeneralCommandDialog(action, context);
+    boostProblemQuestionPriority(item, reason);
+    return;
+  }
+
+  if (type === "suggest_break") {
+    await showGeneralCommandDialog(action, context);
+    logAiCoachAction({ type, reason });
+    showAiActionToast("\u041f\u0430\u0443\u0437\u0430 \u043e\u0442 \u0433\u0435\u043d\u0435\u0440\u0430\u043b\u0430: 30 \u0441\u0435\u043a\u0443\u043d\u0434 \u0431\u0435\u0437 \u043a\u043b\u0438\u043a\u043e\u0432, \u043f\u043e\u0442\u043e\u043c \u0434\u043e\u0436\u0438\u043c\u0430\u0435\u043c.");
+    return;
+  }
+
+  if (type === "start_micro_drill") {
+    if (!["finish", "problemRound"].includes(context.event)) {
+      logAiCoachAction({ type, skipped: true, reason: "event_not_allowed" });
+      return;
+    }
+    await showGeneralCommandDialog(action, context);
+    startAiMicroDrill(action.size, reason);
+  }
+}
+
 async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
+  if (!isAiCoachEnabled()) return;
   if (window.location.protocol === "file:") return;
 
   try {
@@ -1907,6 +2050,8 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
           pending: data.pending || 0,
           wrong: data.wrong || 0,
           percent: data.percent || 0,
+          problemCandidates: getProblemCandidates(currentBankKey).length,
+          canStartMicroDrill: !startBtn.disabled || !TEST.length,
         },
       }),
     });
@@ -1927,12 +2072,14 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
     coachState.lastMessageAt = Date.now();
     saveCoachState();
     renderCoachPanel(message);
+    applyAiCoachAction(json.action, { event, tone, data, localMessage, message });
   } catch (error) {
     showAiCoachUnavailable("request_failed", error, localMessage);
   }
 }
 
 function coachReact(event, data = {}){
+  if (!isAiCoachEnabled()) return;
   if (!coachState) coachState = loadCoachState();
 
   if (event === "correct"){
@@ -2271,6 +2418,80 @@ function saveQStats(allStats){
   localStorage.setItem(QSTATS_KEY, JSON.stringify(allStats));
 }
 
+function logAiCoachAction(entry){
+  const safeEntry = Object.assign({
+    ts: new Date().toISOString(),
+    bankKey: currentBankKey,
+  }, entry || {});
+  console.info("[coach] action:", safeEntry);
+  const history = readJson(AI_ACTION_LOG_KEY, []);
+  const next = Array.isArray(history) ? history.slice(-49) : [];
+  next.push(safeEntry);
+  localStorage.setItem(AI_ACTION_LOG_KEY, JSON.stringify(next));
+}
+
+function showAiActionToast(text){
+  const el = document.createElement("div");
+  el.className = "ai-action-toast";
+  el.textContent = text || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0441\u043c\u0435\u043d\u0438\u043b \u043f\u043b\u0430\u043d \u0442\u0440\u0435\u043d\u0438\u0440\u043e\u0432\u043a\u0438.";
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    setTimeout(() => el.remove(), 320);
+  }, 3600);
+}
+
+function boostProblemQuestionPriority(item, reason = ""){
+  if (!item || item.bankN == null) return false;
+  const key = resolveBankKey(currentBankKey);
+  const id = String(item.bankN);
+  const allStats = loadQStats();
+  if (!allStats[key]) allStats[key] = {};
+  const stat = normalizeQStat(allStats[key][id]);
+  stat.aiBoostCount = Math.min(8, Number(stat.aiBoostCount || 0) + 1);
+  stat.lastAiActionAt = new Date().toISOString();
+  stat.problemScore = calcProblemScore(stat);
+  allStats[key][id] = stat;
+  saveQStats(allStats);
+  addHardQuestion(item.bankN);
+  updateHardButton();
+  updateStartDashboard();
+  logAiCoachAction({ type: "boost_problem_question", questionId: id, reason, score: stat.problemScore });
+  return true;
+}
+
+function startAiMicroDrill(size = 3, reason = ""){
+  const key = resolveBankKey(currentBankKey);
+  const limit = Math.max(3, Math.min(5, Number(size || 3)));
+  const candidates = getProblemCandidates(key).slice(0, limit);
+  if (candidates.length < 3) {
+    logAiCoachAction({ type: "start_micro_drill", skipped: true, reason: "not_enough_candidates" });
+    return false;
+  }
+  if (startBtn.disabled && TEST.length && !isInLearningMode) {
+    logAiCoachAction({ type: "start_micro_drill", skipped: true, reason: "test_is_running" });
+    return false;
+  }
+
+  const review = {
+    active: true,
+    aiMicro: true,
+    bankKey: key,
+    startedAt: new Date().toISOString(),
+    questionIds: candidates.map(x => String(x.bankN)),
+    progress: {}
+  };
+  review.questionIds.forEach(id => {
+    review.progress[id] = { streak: 0 };
+  });
+  saveProblemReview(key, review);
+  logAiCoachAction({ type: "start_micro_drill", size: review.questionIds.length, reason });
+  showAiActionToast("\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442 \u043c\u0438\u043a\u0440\u043e-\u043e\u0442\u0440\u0430\u0431\u043e\u0442\u043a\u0443: \u0441\u043b\u0430\u0431\u044b\u0435 \u0432\u043e\u043f\u0440\u043e\u0441\u044b \u043d\u0430 \u0441\u0442\u043e\u043b.");
+  setTimeout(() => startQuiz({ hardOnly: false }), 650);
+  return true;
+}
+
 function createEmptyQStat(){
   return {
     shown: 0,
@@ -2283,6 +2504,8 @@ function createEmptyQStat(){
     attempts: [],
     learnedOnce: false,
     relapseCount: 0,
+    aiBoostCount: 0,
+    lastAiActionAt: "",
     problemScore: 0,
     problemMasteredAt: ""
   };
@@ -2296,6 +2519,7 @@ function normalizeQStat(stat){
   normalized.wrong = Number(normalized.wrong || 0);
   normalized.streak = Number(normalized.streak || 0);
   normalized.relapseCount = Number(normalized.relapseCount || 0);
+  normalized.aiBoostCount = Number(normalized.aiBoostCount || 0);
   normalized.problemScore = Number(normalized.problemScore || 0);
   normalized.learnedOnce = Boolean(normalized.learnedOnce);
   normalized.attempts = Array.isArray(normalized.attempts)
@@ -2312,7 +2536,10 @@ function hasRecentWrongAfterMastery(stat){
 
 function calcProblemScore(stat){
   stat = normalizeQStat(stat);
-  if (stat.shown < 3 || stat.wrong < 1) return 0;
+  const aiBoost = Math.min(4, Number(stat.aiBoostCount || 0));
+  if (stat.shown < 3 || stat.wrong < 1) {
+    return stat.wrong >= 1 && aiBoost >= 2 ? aiBoost * 2 : 0;
+  }
 
   const attempts = stat.attempts || [];
   const recent = attempts.slice(-3);
@@ -2334,6 +2561,7 @@ function calcProblemScore(stat){
   return Math.round(
     stat.wrong * 2 +
     stat.relapseCount * 6 +
+    aiBoost * 2 +
     recentWrong * 4 +
     errorRate * 10 -
     Math.min(stat.streak, 3) * 2
@@ -3174,7 +3402,7 @@ function showHardModeFail(){
   stopQuestionTimer();
   stopHardmodeMusic();
   stopTimer();
-  coachReact("hardFail");
+  coachReact("hardFail", { item: TEST[curIdx] });
   
   // Сохраняем рекорды hardmode перед завершением
   const bankKey = resolveBankKey(localStorage.getItem("quiz_bank") || DEFAULT_BANK_KEY);
@@ -3381,6 +3609,24 @@ bankSelect.value = initialBank;
 setBank(initialBank);
 renderCoachPanel(coachState?.lastMessage || "Генерал на связи. Работаем спокойно и точно.");
 
+updateCoachToggleUI();
+
+if (coachToggle){
+  coachToggle.checked = aiCoachEnabled;
+  coachToggle.addEventListener("change", () => {
+    aiCoachEnabled = coachToggle.checked;
+    localStorage.setItem(AI_COACH_ENABLED_KEY, aiCoachEnabled ? "1" : "0");
+    updateCoachToggleUI();
+    if (aiCoachEnabled){
+      if (!coachState) coachState = loadCoachState();
+      renderCoachPanel(coachState?.lastMessage || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043d\u0430 \u0441\u0432\u044f\u0437\u0438. \u0420\u0430\u0431\u043e\u0442\u0430\u0435\u043c \u0441\u043f\u043e\u043a\u043e\u0439\u043d\u043e \u0438 \u0442\u043e\u0447\u043d\u043e.");
+    } else {
+      document.getElementById("generalCommandDialog")?.classList.remove("is-visible");
+      document.body.classList.remove("general-command-open");
+    }
+  });
+}
+
 bankSelect.addEventListener("change", () => {
   setBank(bankSelect.value);
 });
@@ -3537,7 +3783,7 @@ if (abortBtn){
 finishBtn.addEventListener("click", () => {
   const idx = findFirstUnanswered();
   if (idx !== -1){
-    coachReact("unanswered", { pending: TEST.length - idx });
+    coachReact("unanswered", { pending: TEST.length - idx, item: TEST[idx] });
     // не даём завершить
     scrollToQuestion(idx);
     showFinishBlockedModal(idx); // добавим ниже

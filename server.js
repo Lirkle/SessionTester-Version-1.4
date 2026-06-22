@@ -294,6 +294,41 @@ function extractOutputText(data){
   return chunks.join("\n").trim();
 }
 
+const COACH_ACTIONS = new Set([
+  "none",
+  "boost_problem_question",
+  "suggest_break",
+  "start_micro_drill",
+]);
+
+function parseCoachDecision(rawText){
+  const raw = String(rawText || "").trim();
+  if (!raw) return { message: "", action: { type: "none" } };
+
+  const jsonText = raw
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
+    .trim();
+
+  try {
+    const parsed = JSON.parse(jsonText);
+    const message = String(parsed.message || "").replace(/\s+/g, " ").trim().slice(0, 320);
+    const actionInput = parsed.action && typeof parsed.action === "object" ? parsed.action : {};
+    const type = COACH_ACTIONS.has(String(actionInput.type || "")) ? String(actionInput.type) : "none";
+    const action = {
+      type,
+      size: Math.max(3, Math.min(5, Number(actionInput.size || 3))),
+      reason: String(actionInput.reason || parsed.reason || "").replace(/\s+/g, " ").trim().slice(0, 180),
+    };
+    return { message, action };
+  } catch {
+    return {
+      message: raw.replace(/\s+/g, " ").trim().slice(0, 320),
+      action: { type: "none" },
+    };
+  }
+}
+
 function safeCoachPayload(input){
   const text = value => String(value ?? "").slice(0, 900);
   return {
@@ -345,7 +380,7 @@ async function handleCoachMessage(req, res){
       },
       body: JSON.stringify({
         model: OPENAI_MODEL,
-        max_output_tokens: 120,
+        max_output_tokens: 220,
         input: [
           {
             role: "system",
@@ -354,7 +389,8 @@ async function handleCoachMessage(req, res){
               "Sound like a character next to the user, not an AI assistant: short, direct, alive, with personality. " +
               "Tone kind is warm, strict pushes focus, drill scolds carelessness, danger is visibly harsher. " +
               "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
-              "Return one short coach line, 1-2 sentences, no markdown.",
+              "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|suggest_break|start_micro_drill\",\"size\":3,\"reason\":\"short internal reason\"}}. " +
+              "Use boost_problem_question only after wrong/unanswered/hardFail. Use suggest_break after repeated misses or danger tone. Use start_micro_drill after finish/problemRound when stats show weak spots.",
           },
           prompt,
         ],
@@ -375,8 +411,8 @@ async function handleCoachMessage(req, res){
       return;
     }
 
-    const message = extractOutputText(data).replace(/\s+/g, " ").trim().slice(0, 320);
-    if (!message) {
+    const decision = parseCoachDecision(extractOutputText(data));
+    if (!decision.message) {
       console.warn("[coach] OpenAI returned an empty coach message");
       sendJson(res, 502, {
         error: "openai_empty_message",
@@ -384,7 +420,13 @@ async function handleCoachMessage(req, res){
       });
       return;
     }
-    sendJson(res, 200, { message });
+    console.log("[coach] decision:", {
+      event: payload.event,
+      tone: payload.tone,
+      action: decision.action?.type || "none",
+      reason: decision.action?.reason || "",
+    });
+    sendJson(res, 200, decision);
   } catch (error) {
     console.warn("[coach] OpenAI request failed:", error);
     sendJson(res, 502, {
