@@ -2,6 +2,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { Pool } = require("pg");
 
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
@@ -29,6 +30,13 @@ const PORT = Number(process.env.PORT || 8765);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.5";
 const SESSION_COOKIE = "session_tester_sid";
+const DATABASE_URL = process.env.DATABASE_URL || "";
+const pgPool = DATABASE_URL
+  ? new Pool({
+      connectionString: DATABASE_URL,
+      ssl: process.env.PGSSLMODE === "disable" ? false : { rejectUnauthorized: false },
+    })
+  : null;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -72,6 +80,83 @@ function loadUsers(){
 function saveUsers(data){
   ensureDataStore();
   fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2));
+}
+
+function rowToUser(row){
+  if (!row) return null;
+  return {
+    id: row.id,
+    username: row.username,
+    passwordSalt: row.password_salt,
+    passwordHash: row.password_hash,
+    createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
+    stats: row.stats || defaultUserStats(),
+  };
+}
+
+async function initDatabase(){
+  if (!pgPool) return;
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      password_salt TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      stats JSONB NOT NULL DEFAULT '{}'::jsonb
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS users_username_lower_idx ON users (LOWER(username))`);
+}
+
+async function findUserById(id){
+  if (pgPool) {
+    const result = await pgPool.query("SELECT * FROM users WHERE id = $1", [id]);
+    return rowToUser(result.rows[0]);
+  }
+  const db = loadUsers();
+  return db.users.find(user => user.id === id) || null;
+}
+
+async function findUserByUsername(username){
+  if (pgPool) {
+    const result = await pgPool.query("SELECT * FROM users WHERE LOWER(username) = LOWER($1)", [username]);
+    return rowToUser(result.rows[0]);
+  }
+  const db = loadUsers();
+  return db.users.find(user => user.username.toLowerCase() === username.toLowerCase()) || null;
+}
+
+async function createUserRecord(user){
+  if (pgPool) {
+    const result = await pgPool.query(
+      `INSERT INTO users (id, username, password_salt, password_hash, created_at, stats)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING *`,
+      [user.id, user.username, user.passwordSalt, user.passwordHash, user.createdAt, JSON.stringify(user.stats || defaultUserStats())]
+    );
+    return rowToUser(result.rows[0]);
+  }
+  const db = loadUsers();
+  db.users.push(user);
+  saveUsers(db);
+  return user;
+}
+
+async function saveUserStats(userId, stats){
+  if (pgPool) {
+    const result = await pgPool.query(
+      "UPDATE users SET stats = $2 WHERE id = $1 RETURNING *",
+      [userId, JSON.stringify(stats)]
+    );
+    return rowToUser(result.rows[0]);
+  }
+  const db = loadUsers();
+  const user = db.users.find(item => item.id === userId);
+  if (!user) return null;
+  user.stats = stats;
+  saveUsers(db);
+  return user;
 }
 
 function publicUser(user){
@@ -122,13 +207,12 @@ function clearSessionCookie(res){
   res.setHeader("Set-Cookie", `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
 }
 
-function getSessionUser(req){
+async function getSessionUser(req){
   const token = parseCookies(req)[SESSION_COOKIE];
   if (!token) return null;
   const userId = sessions.get(token);
   if (!userId) return null;
-  const db = loadUsers();
-  return db.users.find(user => user.id === userId) || null;
+  return findUserById(userId);
 }
 
 function validateCredentials(username, password){
@@ -143,9 +227,12 @@ function validateCredentials(username, password){
   return { username: cleanUsername, password: cleanPassword };
 }
 
-function leaderboardRows(){
-  const db = loadUsers();
-  return db.users
+async function leaderboardRows(){
+  const users = pgPool
+    ? (await pgPool.query("SELECT * FROM users")).rows.map(rowToUser)
+    : loadUsers().users;
+
+  return users
     .map(user => {
       const stats = user.stats || defaultUserStats();
       return {
@@ -291,8 +378,7 @@ async function handleRegister(req, res){
   const valid = validateCredentials(body.username, body.password);
   if (valid.error) return sendJson(res, 400, { error: valid.error });
 
-  const db = loadUsers();
-  const exists = db.users.some(user => user.username.toLowerCase() === valid.username.toLowerCase());
+  const exists = await findUserByUsername(valid.username);
   if (exists) return sendJson(res, 409, { error: "username_taken" });
 
   const password = hashPassword(valid.password);
@@ -304,13 +390,12 @@ async function handleRegister(req, res){
     createdAt: new Date().toISOString(),
     stats: defaultUserStats(),
   };
-  db.users.push(user);
-  saveUsers(db);
+  const savedUser = await createUserRecord(user);
 
   const token = crypto.randomBytes(32).toString("hex");
-  sessions.set(token, user.id);
+  sessions.set(token, savedUser.id);
   setSessionCookie(res, token);
-  sendJson(res, 201, { user: publicUser(user), leaderboard: leaderboardRows() });
+  sendJson(res, 201, { user: publicUser(savedUser), leaderboard: await leaderboardRows() });
 }
 
 async function handleLogin(req, res){
@@ -325,8 +410,7 @@ async function handleLogin(req, res){
 
   const username = String(body.username || "").trim();
   const password = String(body.password || "");
-  const db = loadUsers();
-  const user = db.users.find(item => item.username.toLowerCase() === username.toLowerCase());
+  const user = await findUserByUsername(username);
   if (!user || !verifyPassword(password, user)) {
     return sendJson(res, 401, { error: "invalid_login" });
   }
@@ -334,13 +418,13 @@ async function handleLogin(req, res){
   const token = crypto.randomBytes(32).toString("hex");
   sessions.set(token, user.id);
   setSessionCookie(res, token);
-  sendJson(res, 200, { user: publicUser(user), leaderboard: leaderboardRows() });
+  sendJson(res, 200, { user: publicUser(user), leaderboard: await leaderboardRows() });
 }
 
-function handleMe(req, res){
-  const user = getSessionUser(req);
+async function handleMe(req, res){
+  const user = await getSessionUser(req);
   if (!user) return sendJson(res, 401, { error: "not_authenticated" });
-  sendJson(res, 200, { user: publicUser(user), leaderboard: leaderboardRows() });
+  sendJson(res, 200, { user: publicUser(user), leaderboard: await leaderboardRows() });
 }
 
 function handleLogout(req, res){
@@ -350,14 +434,14 @@ function handleLogout(req, res){
   sendJson(res, 200, { ok: true });
 }
 
-function handleLeaderboard(req, res){
-  sendJson(res, 200, { leaderboard: leaderboardRows() });
+async function handleLeaderboard(req, res){
+  sendJson(res, 200, { leaderboard: await leaderboardRows() });
 }
 
 async function handleSubmitScore(req, res){
   if (req.method !== "POST") return sendJson(res, 405, { error: "method_not_allowed" });
 
-  const sessionUser = getSessionUser(req);
+  const sessionUser = await getSessionUser(req);
   if (!sessionUser) return sendJson(res, 401, { error: "not_authenticated" });
 
   let body;
@@ -373,8 +457,7 @@ async function handleSubmitScore(req, res){
   const elapsedMs = Math.max(0, Math.min(24 * 60 * 60 * 1000, Number(body.elapsedMs || 0)));
   const exp = Math.max(0, Math.min(5000, Number(body.exp || 0)));
 
-  const db = loadUsers();
-  const user = db.users.find(item => item.id === sessionUser.id);
+  const user = await findUserById(sessionUser.id);
   if (!user) return sendJson(res, 401, { error: "not_authenticated" });
 
   const stats = Object.assign(defaultUserStats(), user.stats || {});
@@ -385,10 +468,8 @@ async function handleSubmitScore(req, res){
   stats.totalCorrect = Number(stats.totalCorrect || 0) + correct;
   stats.totalTimeSeconds = Number(stats.totalTimeSeconds || 0) + Math.floor(elapsedMs / 1000);
   stats.lastPlayedAt = new Date().toISOString();
-  user.stats = stats;
-
-  saveUsers(db);
-  sendJson(res, 200, { user: publicUser(user), leaderboard: leaderboardRows() });
+  const savedUser = await saveUserStats(user.id, stats);
+  sendJson(res, 200, { user: publicUser(savedUser), leaderboard: await leaderboardRows() });
 }
 
 function serveStatic(req, res){
@@ -416,21 +497,38 @@ function serveStatic(req, res){
   });
 }
 
+function runApi(handler, req, res){
+  Promise.resolve(handler(req, res)).catch(error => {
+    console.error("API error:", error);
+    if (!res.headersSent) {
+      sendJson(res, 500, { error: "server_error" });
+    }
+  });
+}
+
 const server = http.createServer((req, res) => {
   if (req.url && req.url.startsWith("/api/coach-message")) {
-    handleCoachMessage(req, res);
+    runApi(handleCoachMessage, req, res);
     return;
   }
-  if (req.url === "/api/register") return handleRegister(req, res);
-  if (req.url === "/api/login") return handleLogin(req, res);
-  if (req.url === "/api/me") return handleMe(req, res);
-  if (req.url === "/api/logout") return handleLogout(req, res);
-  if (req.url === "/api/leaderboard") return handleLeaderboard(req, res);
-  if (req.url === "/api/submit-score") return handleSubmitScore(req, res);
+  if (req.url === "/api/register") return runApi(handleRegister, req, res);
+  if (req.url === "/api/login") return runApi(handleLogin, req, res);
+  if (req.url === "/api/me") return runApi(handleMe, req, res);
+  if (req.url === "/api/logout") return runApi(handleLogout, req, res);
+  if (req.url === "/api/leaderboard") return runApi(handleLeaderboard, req, res);
+  if (req.url === "/api/submit-score") return runApi(handleSubmitScore, req, res);
   serveStatic(req, res);
 });
 
-server.listen(PORT, () => {
-  console.log(`SessionTester running at http://127.0.0.1:${PORT}/`);
-  console.log(OPENAI_API_KEY ? `OpenAI coach enabled (${OPENAI_MODEL})` : "OpenAI coach disabled: set OPENAI_API_KEY");
-});
+initDatabase()
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log(`SessionTester running at http://127.0.0.1:${PORT}/`);
+      console.log(pgPool ? "Postgres leaderboard enabled" : "JSON leaderboard enabled (local fallback)");
+      console.log(OPENAI_API_KEY ? `OpenAI coach enabled (${OPENAI_MODEL})` : "OpenAI coach disabled: set OPENAI_API_KEY");
+    });
+  })
+  .catch(error => {
+    console.error("Failed to initialize database:", error);
+    process.exit(1);
+  });

@@ -1522,7 +1522,16 @@ function defaultCoachState(){
 
 function loadCoachState(){
   const saved = readJson(COACH_STATE_KEY, null);
-  return Object.assign(defaultCoachState(), saved && typeof saved === "object" ? saved : {});
+  const state = Object.assign(defaultCoachState(), saved && typeof saved === "object" ? saved : {});
+  const message = String(state.lastMessage || "");
+  const looksBroken = /(?:Р[ђ-џ]|С[Ѐ-џ]|вЂ|вњ|вљ|\?{2,})/.test(message);
+  if (looksBroken){
+    state.lastMessage = "General online. Work calmly.";
+    state.lastEvent = "";
+    state.lastMessageAt = 0;
+    localStorage.setItem(COACH_STATE_KEY, JSON.stringify(state));
+  }
+  return state;
 }
 
 function saveCoachState(){
@@ -1551,124 +1560,124 @@ function getCoachMessage(event, tone, data = {}){
   const messages = {
     start: {
       kind: [
-        "На связи генерал. Спокойно читаем вопрос, отсекаем мусор, берём правильный ответ.",
-        "Работаем ровно. Ошибка не страшна, если после неё есть разбор."
+        "General online. Read calmly, cut the noise, choose with intent.",
+        "Steady work. Mistakes are allowed; guessing is not."
       ],
       strict: [
-        "Темп держим, но внимательность подтянуть. Не угадывай, доказывай ответ.",
-        "Соберись. Сначала смысл вопроса, потом варианты."
+        "Hold the pace, but tighten the focus. Prove the answer before you click.",
+        "Eyes on the wording first, options second."
       ],
       drill: [
-        "Курсант, режим тренировки включён. Бегства нет, есть вопрос и правильный ответ.",
-        "Сэр, да сэр. Сейчас не кликаем на авось, сейчас закрываем тему."
+        "Cadet, training mode is active. No escape routes, only answers.",
+        "Sir, yes sir. No random clicks; we close the weak spot."
       ],
       danger: [
-        "Красная зона. Любая попытка проскочить будет возвращать тебя обратно к вопросу.",
-        "Так, стройся. Пока не начнёшь думать, сайт тебя не отпустит."
+        "Red zone. Every shortcut sends you back to the question.",
+        "Stand to attention. Think first, click second."
       ]
     },
     unanswered: {
       strict: [
-        "Пустой ответ? Нет, так не пойдёт. Вернись к вопросу и дай вариант.",
-        "Курсант, вопрос не исчезнет, если сделать вид, что его нет."
+        "Blank answer? Negative. Return to the question and commit.",
+        "Cadet, ignoring the question does not make it disappear."
       ],
       drill: [
-        "Не отвечать запрещено. Читаешь формулировку, убираешь два слабых варианта, выбираешь.",
-        "Сэр, да сэр: пустые ответы остаются на плацу до исправления."
+        "No skips. Read, eliminate two weak options, then answer.",
+        "Sir, yes sir: blank answers stay on the parade ground."
       ],
       danger: [
-        "Это уже не пропуск, это побег. Развернуться и ответить.",
-        "Отставить уклонение. Пока вопрос пустой, зачёта не будет."
+        "That is not a skip, that is a retreat. Turn around and answer.",
+        "Evasion denied. No answer, no clearance."
       ]
     },
     wrong: {
       strict: [
-        "Ошибка принята. Теперь без паники: найди слово в вопросе, которое решает смысл.",
-        "Неверно. Убери варианты, которые говорят о другом процессе, и попробуй связать термин с определением."
+        "Wrong answer logged. Now find the word that decides the meaning.",
+        "Incorrect. Remove the distractors and connect the term to its definition."
       ],
       drill: [
-        "Курсант, этот промах заносим в журнал. Следующий подход должен быть осознанным.",
-        "Сэр, да сэр. Неправильный ответ не трагедия, но второй такой же уже дисциплинарка."
+        "Cadet, that miss goes in the log. Next attempt must be deliberate.",
+        "Sir, yes sir. One wrong answer is data; repeating it is discipline trouble."
       ],
       danger: [
-        "Нет. Это не обучение, если ты просто тыкаешь. Остановись и разбери формулировку.",
-        "Красная зона. Пока не поймёшь, почему ответ верный, вопрос будет возвращаться."
+        "No. Clicking at random is not training. Stop and read the question.",
+        "Red zone. Until you understand the answer, the question comes back."
       ]
     },
     correct: {
       kind: [
-        "Вот так. Спокойно, чисто, по делу.",
-        "Принято. Ответ уверенный, двигаемся дальше."
+        "Clean hit. Calm, sharp, on target.",
+        "Accepted. Confident answer, move forward."
       ],
       strict: [
-        "Хорошо. Видишь, когда читаешь внимательно, всё становится проще.",
-        "Верно. Держи этот темп, курсант."
+        "Good. See what happens when you read carefully?",
+        "Correct. Hold that tempo, cadet."
       ],
       drill: [
-        "Сэр, да сэр. Один шаг к свободе сделан.",
-        "Есть попадание. Закрепляем, не расслабляемся."
+        "Sir, yes sir. One step closer to freedom.",
+        "Hit confirmed. Lock it in, do not relax yet."
       ],
       danger: [
-        "Наконец-то порядок. Продолжай так, и выйдешь из красной зоны.",
-        "Вот это уже похоже на работу. Ещё правильные ответы, и режим смягчится."
+        "Finally, order. Keep that up and you leave the red zone.",
+        "That looks like work. More correct answers, less chaos."
       ]
     },
     finish: {
       kind: [
-        `Сессия закрыта. Результат ${percent}%. Ошибок: ${wrong}. Есть материал для прокачки.`,
-        `Финиш. ${percent}% — нормальная база, теперь добиваем слабые места.`
+        `Session complete: ${percent}%. Mistakes: ${wrong}. We have material to train.`,
+        `Finished at ${percent}%. Now we clean up the weak spots.`
       ],
       strict: [
-        `Финиш: ${percent}%. Ошибок ${wrong}. Разбор обязателен, угадайка не засчитывается.`,
-        `Сессия закончена. Ошибки записаны, дисциплина начинается с повторения.`
+        `Finish: ${percent}%. Mistakes: ${wrong}. Review is mandatory.`,
+        "Session complete. Mistakes are logged; discipline starts with repetition."
       ],
       drill: [
-        `Результат ${percent}%. Проблемные вопросы отправятся на закрепление. Сэр, да сэр.`,
-        `Ошибок ${wrong}. Генерал недоволен, но план понятен: повторить и закрыть.`
+        `Result ${percent}%. Problem questions are going to review. Sir, yes sir.`,
+        `Mistakes: ${wrong}. The plan is simple: repeat and close. Sir, yes sir.`
       ],
       danger: [
-        `Красная зона: ${percent}%. Тебя спасёт только закрепление без побегов.`,
-        `Слишком много провалов. Вопросы будут возвращаться, пока не станут твоими.`
+        `Red zone: ${percent}%. Review is the only way out.`,
+        "Too many failures. These questions will return until they are yours."
       ]
     },
     problemStart: {
       drill: [
-        `Проблемная десятка собрана. Осталось закрыть: ${pending}. Два правильных подряд по каждому.`,
-        `Начинается закрепление. ${pending} вопросов, побег отменён.`
+        `Problem review started. Pending: ${pending}. Two correct in a row for each.`,
+        `Review mode engaged. ${pending} targets. No escape. Sir, yes sir.`
       ],
       danger: [
-        `Генерал берёт управление. ${pending} проблемных вопросов, и каждый ждёт два правильных подряд.`,
-        `Вот она, зона зачистки. ${pending} целей. Ошибка сбрасывает серию.`
+        `General takes command. ${pending} problem questions, two clean hits each.`,
+        `Cleanup zone active. ${pending} targets. One mistake resets the streak.`
       ]
     },
     problemRound: {
       drill: [
-        `Раунд не закрыт. Осталось: ${pending}. Ошибся — вопрос вернулся в строй.`,
-        `Продолжаем. ${pending} вопросов ещё сопротивляются.`
+        `Round not cleared. Pending: ${pending}. Misses return to formation.`,
+        `Continue. ${pending} questions are still resisting.`
       ],
       danger: [
-        `Нет, на этом не выходим. Осталось ${pending}, работаем до закрепления.`,
-        `Попытка принята, но не зачтена полностью. ${pending} вопросов ещё держат оборону.`
+        `No exit yet. ${pending} questions remain. Work until cleared.`,
+        `Attempt recorded, not fully cleared. ${pending} targets still stand.`
       ]
     },
     problemCleared: {
       kind: [
-        "Проблемная десятка закрыта. Вот это уже дисциплина.",
-        "Закрепление пройдено. Генерал доволен, можешь идти дальше."
+        "Problem set cleared. That is discipline.",
+        "Review complete. General approves. Move out."
       ],
       strict: [
-        "Десятка закрыта. Запомни ощущение: два правильных подряд решают.",
-        "Зачёт. Проблемные вопросы сняты с контроля."
+        "Ten problem questions cleared. Remember: two correct in a row wins.",
+        "Cleared. Weak spots removed from active control."
       ]
     },
     hardFail: {
       drill: [
-        "Hardmode провален. Это было жёстко, но честно.",
-        "Один шанс был потрачен. В следующий раз сначала думай, потом жми."
+        "Hardmode failed. Harsh, but fair.",
+        "One chance spent. Next time, think before you click."
       ],
       danger: [
-        "Провал. Генерал видел этот клик. Повторить, разобрать, вернуться.",
-        "Hardmode не про удачу. Возвращайся после разбора."
+        "Failure. The general saw that click. Review, return, execute.",
+        "Hardmode is not luck. Come back after review."
       ]
     }
   };
@@ -1691,7 +1700,7 @@ function ensureCoachPanel(){
         <strong id="coachTitle">General mode</strong>
         <span id="coachTone">kind</span>
       </div>
-      <p id="coachMessage">На связи генерал. Работаем спокойно.</p>
+      <p id="coachMessage">General online. Work calmly.</p>
     </div>
   `;
 
@@ -1714,7 +1723,7 @@ function renderCoachPanel(message){
   panel.dataset.tone = coachState.tone;
   if (title) title.textContent = coachState.tone === "kind" ? "General mode" : "Drill General";
   if (tone) tone.textContent = coachState.tone;
-  if (msg) msg.textContent = message || coachState.lastMessage || "На связи генерал. Работаем спокойно.";
+  if (msg) msg.textContent = message || coachState.lastMessage || "General online. Work calmly.";
 
   panel.classList.remove("is-pulsing");
   void panel.offsetWidth;
@@ -3216,7 +3225,7 @@ const saved = resolveBankKey(localStorage.getItem("quiz_bank") || DEFAULT_BANK_K
 const initialBank = saved;
 bankSelect.value = initialBank;
 setBank(initialBank);
-renderCoachPanel(coachState?.lastMessage || "?? ????? ???????. ???????? ????????.");
+renderCoachPanel(coachState?.lastMessage || "General online. Work calmly.");
 
 bankSelect.addEventListener("change", () => {
   setBank(bankSelect.value);
