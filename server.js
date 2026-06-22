@@ -480,6 +480,7 @@ async function handleCoachMessage(req, res){
               "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
               "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill\",\"size\":3,\"reason\":\"short internal reason\"}}. " +
               "Never pause, block, lock, or slow the user during a test. Use boost_problem_question only after wrong/unanswered/hardFail. Use start_micro_drill only after finish/problemRound when stats show weak spots; choose size from 3 to 10 based on problemCandidates. " +
+              "After finish, if percent is 60 or lower, wrongStreak is 8 or higher, or missedStreak is 4 or higher, and problemCandidates is at least 3, strongly prefer start_micro_drill instead of none. " +
               "If event is commandReply, judge the user's userReply naturally: if they agree or sound ready, return start_micro_drill; if they refuse, delay, joke, ask a question, or sound unsure, return none and answer them in-character.",
           },
           prompt,

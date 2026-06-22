@@ -228,6 +228,7 @@ const translateBtn = document.getElementById("translateBtn");
 
 let currentUser = null;
 let leaderboardRowsCache = [];
+let microphoneAccessGranted = false;
 
 async function apiJson(url, options = {}){
   const response = await fetch(url, {
@@ -1238,6 +1239,82 @@ function updateTranslationUI(){
     : "Р’РєР»СЋС‡РёС‚СЊ СЂСѓСЃСЃРєРёР№ РІР°СЂРёР°РЅС‚ РІРѕРїСЂРѕСЃРѕРІ Рё РѕС‚РІРµС‚РѕРІ.";
 }
 
+function ensureMicGateUI(){
+  let overlay = document.getElementById("micGate");
+  if (overlay) return overlay;
+
+  overlay = document.createElement("div");
+  overlay.id = "micGate";
+  overlay.className = "auth-gate mic-gate is-visible";
+  overlay.innerHTML = `
+    <section class="auth-card mic-gate__card">
+      <div>
+        <p class="eyebrow">\u0413\u0435\u043d\u0435\u0440\u0430\u043b\u044c\u0441\u043a\u0430\u044f \u0441\u0432\u044f\u0437\u044c</p>
+        <h2>\u041d\u0443\u0436\u0435\u043d \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d</h2>
+        <p class="muted small">\u0411\u0435\u0437 \u0434\u043e\u0441\u0442\u0443\u043f\u0430 \u043a \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d\u0443 \u0432\u0445\u043e\u0434 \u043d\u0430 \u0441\u0430\u0439\u0442 \u0437\u0430\u043a\u0440\u044b\u0442: \u0433\u0435\u043d\u0435\u0440\u0430\u043b \u0434\u043e\u043b\u0436\u0435\u043d \u0441\u043b\u044b\u0448\u0430\u0442\u044c \u0442\u0432\u043e\u0438 \u043e\u0442\u0432\u0435\u0442\u044b.</p>
+      </div>
+      <button id="micGateAllow" type="button">\u0414\u0430\u0442\u044c \u0434\u043e\u0441\u0442\u0443\u043f</button>
+      <div id="micGateError" class="auth-error" role="alert"></div>
+      <div class="auth-rules">\u0415\u0441\u043b\u0438 \u0443\u0436\u0435 \u0437\u0430\u043f\u0440\u0435\u0442\u0438\u043b, \u043e\u0442\u043a\u0440\u043e\u0439 \u0437\u0430\u043c\u043e\u043a \u0432 \u0430\u0434\u0440\u0435\u0441\u043d\u043e\u0439 \u0441\u0442\u0440\u043e\u043a\u0435 \u0438 \u0440\u0430\u0437\u0440\u0435\u0448\u0438 \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d.</div>
+    </section>
+  `;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+async function getMicrophonePermissionState(){
+  try {
+    if (!navigator.permissions?.query) return "";
+    const status = await navigator.permissions.query({ name: "microphone" });
+    return status?.state || "";
+  } catch {
+    return "";
+  }
+}
+
+async function requireMicrophoneAccess(){
+  if (microphoneAccessGranted) return true;
+  const overlay = ensureMicGateUI();
+  const button = overlay.querySelector("#micGateAllow");
+  const errorBox = overlay.querySelector("#micGateError");
+
+  if (!navigator.mediaDevices?.getUserMedia) {
+    if (errorBox) {
+      errorBox.textContent = "\u0411\u0440\u0430\u0443\u0437\u0435\u0440 \u043d\u0435 \u0434\u0430\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f \u043a \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d\u0443. \u041d\u0443\u0436\u0435\u043d HTTPS \u0438\u043b\u0438 localhost.";
+    }
+    return false;
+  }
+
+  const state = await getMicrophonePermissionState();
+  if (state === "granted") {
+    microphoneAccessGranted = true;
+    overlay.classList.remove("is-visible");
+    return true;
+  }
+
+  return new Promise(resolve => {
+    const requestAccess = async () => {
+      if (errorBox) errorBox.textContent = "";
+      if (button) button.disabled = true;
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+        microphoneAccessGranted = true;
+        overlay.classList.remove("is-visible");
+        resolve(true);
+      } catch (error) {
+        console.warn("[mic] permission denied:", error);
+        if (errorBox) {
+          errorBox.textContent = "\u0414\u043e\u0441\u0442\u0443\u043f \u043a \u043c\u0438\u043a\u0440\u043e\u0444\u043e\u043d\u0443 \u043d\u0435 \u0434\u0430\u043d. \u0411\u0435\u0437 \u043d\u0435\u0433\u043e \u0441\u0430\u0439\u0442 \u043d\u0435 \u043e\u0442\u043a\u0440\u043e\u0435\u0442\u0441\u044f.";
+        }
+      } finally {
+        if (button) button.disabled = false;
+      }
+    };
+    button?.addEventListener("click", requestAccess);
+  });
+}
+
 function ensureAuthUI(){
   let overlay = document.getElementById("authGate");
   if (overlay) return overlay;
@@ -1417,6 +1494,8 @@ async function logoutUser(){
 }
 
 async function requireAuth(){
+  const micReady = await requireMicrophoneAccess();
+  if (!micReady) return;
   ensureAuthUI();
   ensureLeaderboardUI();
   try {
@@ -2325,6 +2404,7 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
           wrong: data.wrong || 0,
           percent: data.percent || 0,
           problemCandidates: getProblemCandidates(currentBankKey).length,
+          severeReviewRecommended: event === "finish" && (Number(data.percent || 0) <= 60 || Number(coachState?.wrongStreak || 0) >= 8),
           canStartMicroDrill: !startBtn.disabled || !TEST.length,
         },
       }),
@@ -2346,7 +2426,16 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
     coachState.lastMessageAt = Date.now();
     saveCoachState();
     renderCoachPanel(message);
-    applyAiCoachAction(json.action, { event, tone, data, localMessage, message });
+    let action = json.action;
+    if (shouldForceAiMicroDrill(event, data, action)) {
+      const candidateCount = getProblemCandidates(currentBankKey).length;
+      action = {
+        type: "start_micro_drill",
+        size: Math.min(10, Math.max(3, candidateCount)),
+        reason: "severe weak-spot review"
+      };
+    }
+    applyAiCoachAction(action, { event, tone, data, localMessage, message });
   } catch (error) {
     showAiCoachUnavailable("request_failed", error, localMessage);
   }
@@ -2397,6 +2486,26 @@ function coachReact(event, data = {}){
 }
 
 coachState = loadCoachState();
+
+function shouldForceAiMicroDrill(event, data = {}, action = null){
+  const actionType = String(action?.type || "none");
+  if (actionType === "start_micro_drill") return false;
+  if (!["finish", "problemRound"].includes(event)) return false;
+
+  const candidates = getProblemCandidates(currentBankKey).length;
+  if (candidates < 3) return false;
+  if (startBtn.disabled && TEST.length && !isInLearningMode) return false;
+
+  const percent = Number(data.percent || 0);
+  const wrong = Number(data.wrong || 0);
+  const wrongStreak = Number(coachState?.wrongStreak || 0);
+  const missedStreak = Number(coachState?.missedStreak || 0);
+  return event === "problemRound"
+    || percent <= 60
+    || wrong >= 3
+    || wrongStreak >= 8
+    || missedStreak >= 4;
+}
 
 function getHardKey(bankKey = currentBankKey){
   return `hard_questions_${bankKey}_v2`;
@@ -2653,7 +2762,26 @@ function showFinishBlockedModal(idx){
 
   const el = document.createElement("div");
   el.id = "finishBlockedModal";
-  el.className = "hardmode-fail-overlay show"; // РёСЃРїРѕР»СЊР·СѓРµРј С‚РІРѕР№ РіРѕС‚РѕРІС‹Р№ РѕРІРµСЂР»РµР№-СЃС‚РёР»СЊ
+  el.className = "hardmode-fail-overlay show";
+  el.innerHTML = `
+    <div class="hardmode-fail-content">
+      <div class="hardmode-fail-icon">\u26a0\ufe0f</div>
+      <div class="hardmode-fail-title">\u0415\u0441\u0442\u044c \u043f\u0440\u043e\u043f\u0443\u0449\u0435\u043d\u043d\u044b\u0435 \u0432\u043e\u043f\u0440\u043e\u0441\u044b</div>
+      <div class="hardmode-fail-sub">\u041d\u0443\u0436\u043d\u043e \u043e\u0442\u0432\u0435\u0442\u0438\u0442\u044c, \u0438\u043d\u0430\u0447\u0435 \u0437\u0430\u0432\u0435\u0440\u0448\u0438\u0442\u044c \u043d\u0435\u043b\u044c\u0437\u044f</div>
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:16px">
+        <button id="goMissBtn">\u041f\u0435\u0440\u0435\u0439\u0442\u0438</button>
+        <button class="secondary" id="cancelMissBtn">\u041e\u0442\u043c\u0435\u043d\u0430</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(el);
+
+  document.getElementById("goMissBtn").onclick = () => {
+    scrollToQuestion(idx);
+    el.remove();
+  };
+  document.getElementById("cancelMissBtn").onclick = () => el.remove();
+  return;
   el.innerHTML = `
     <div class="hardmode-fail-content">
       <div class="hardmode-fail-icon">вљ пёЏ</div>

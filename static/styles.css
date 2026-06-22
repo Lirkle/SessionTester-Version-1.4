@@ -1290,6 +1290,20 @@ details > :not(summary){
   display:flex;
 }
 
+.mic-gate{
+  z-index:340;
+}
+
+.mic-gate__card{
+  gap:16px;
+  border-color:rgba(255,48,76,.58);
+  box-shadow:0 0 0 1px rgba(255,48,76,.16), 0 24px 70px rgba(0,0,0,.6), 0 0 44px rgba(211,38,58,.2);
+}
+
+.mic-gate__card button{
+  width:100%;
+}
+
 .general-command{
   position:fixed;
   inset:0;
