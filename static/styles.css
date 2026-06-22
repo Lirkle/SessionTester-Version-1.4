@@ -1045,6 +1045,27 @@ details > :not(summary){
   box-shadow:0 0 0 3px rgba(198,75,79,.12), var(--shadow2);
 }
 
+.problem-review-card{
+  border-color:rgba(211,38,58,.72);
+}
+
+.problem-review-note{
+  margin:-2px 0 12px;
+  padding:8px 10px;
+  border:1px solid rgba(211,38,58,.30);
+  border-radius:8px;
+  background:rgba(211,38,58,.10);
+  color:var(--text);
+  font-size:12px;
+  font-weight:760;
+}
+
+.bank-tile.is-locked{
+  opacity:.52;
+  filter:saturate(.6);
+  cursor:not-allowed;
+}
+
 .qhead .skipBadge{
   flex:0 0 auto;
   margin-left:auto;

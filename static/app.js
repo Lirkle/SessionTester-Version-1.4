@@ -1145,28 +1145,50 @@ function updateStartDashboard(){
   if (!startDashboard) return;
 
   const selectedOption = bankSelect?.options[bankSelect.selectedIndex];
-  const bankName = selectedOption?.textContent || "Банк";
-  if (dashTitle) dashTitle.textContent = `${bankName} · ${TEST_SIZE} вопросов`;
+  const bankName = selectedOption?.textContent || "Bank";
+  const forcedProblemBank = getForcedProblemBank();
+  const problemStatus = getProblemReviewStatus(currentBankKey);
+  const problemLocked = forcedProblemBank === currentBankKey;
+
+  if (dashTitle) {
+    dashTitle.textContent = problemLocked
+      ? `Problem review · ${problemStatus.pending || PROBLEM_REVIEW_SIZE} questions`
+      : `${bankName} · ${TEST_SIZE} questions`;
+  }
   if (dashBankCount) dashBankCount.textContent = String(ALL.length || 0);
-  if (dashMode) dashMode.textContent = mode === "mcq" ? "A–E" : "Текст";
-  if (dashHardCount) dashHardCount.textContent = String(hardQuestions.size);
+  if (dashMode) dashMode.textContent = mode === "mcq" ? "A-E" : "Text";
+  if (dashHardCount) dashHardCount.textContent = String(problemLocked ? problemStatus.pending : hardQuestions.size);
+  if (quickStartBtn) quickStartBtn.textContent = problemLocked ? "Problem review" : "Start test";
+  if (startBtn) startBtn.textContent = problemLocked ? "Review" : "Start";
+  if (quickHardBtn && problemLocked) quickHardBtn.disabled = true;
 
   document.querySelectorAll("[data-bank-tile]").forEach(tile => {
     tile.classList.toggle("is-active", tile.dataset.bankTile === currentBankKey);
+    tile.classList.toggle("is-locked", Boolean(forcedProblemBank) && tile.dataset.bankTile !== forcedProblemBank);
   });
 
   if (dashPreview){
     dashPreview.innerHTML = "";
-    const previewItems = ALL.slice(0, 3);
+    let previewItems = ALL.slice(0, 3);
+
+    if (problemLocked){
+      const review = loadProblemReview(currentBankKey);
+      const ids = review?.questionIds || getProblemCandidates(currentBankKey).slice(0, PROBLEM_REVIEW_SIZE).map(x => x.bankN);
+      const idSet = new Set(ids.map(String));
+      previewItems = ALL.filter(item => idSet.has(String(item.n))).slice(0, 3);
+    }
+
     previewItems.forEach((item, idx) => {
       const row = document.createElement("div");
       row.className = "session-preview__item";
 
       const num = document.createElement("span");
-      num.textContent = String(idx + 1).padStart(2, "0");
+      num.textContent = problemLocked ? "!" : String(idx + 1).padStart(2, "0");
 
       const text = document.createElement("p");
-      text.textContent = displayText(item.q);
+      text.textContent = problemLocked
+        ? `Review: ${displayText(item.q)}`
+        : displayText(item.q);
       if (translateRu) text.title = item.q;
 
       row.appendChild(num);
@@ -1184,9 +1206,11 @@ function setRunning(isRunning){
   if (isRunning) {
     appEl.classList.add("is-running");
     if (hardMode) appEl.classList.add("hardmode-active");
+    if (isProblemReviewMode) appEl.classList.add("problem-review-active");
   } else {
     appEl.classList.remove("is-running");
     appEl.classList.remove("hardmode-active");
+    appEl.classList.remove("problem-review-active");
   }
 }
 
@@ -1231,6 +1255,13 @@ testSizeSelect.value = String(TEST_SIZE);
 testSizeDisplay.textContent = TEST_SIZE;
 let answers = new Map(); // id -> (mcq: index 0..4) | (text: string)
 let skipObserver = null;
+let isProblemReviewMode = false;
+let activeProblemReviewBank = null;
+
+const PROBLEM_REVIEW_SIZE = 10;
+const PROBLEM_CLEAR_STREAK = 2;
+const PROBLEM_ATTEMPT_LIMIT = 12;
+const PROBLEM_REVIEW_VERSION = 1;
 
 
 // === HARD AUTO (ошибка -> добавить, 2 подряд верно -> снять) ===
@@ -1299,7 +1330,8 @@ function deleteHardQuestion(bankN){
 
 function updateHardButton(){
   if (!hardBtn) return;
-  const disabled = (hardQuestions.size === 0 || startBtn.disabled);
+  const forcedProblemBank = getForcedProblemBank();
+  const disabled = Boolean(forcedProblemBank) || (hardQuestions.size === 0 || startBtn.disabled);
   hardBtn.disabled = disabled;
   if (quickHardBtn) quickHardBtn.disabled = disabled;
   updateStartDashboard();
@@ -1374,6 +1406,24 @@ function buildTestHard(){
   const picked = shuffle([...hardItems]).slice(0, Math.min(TEST_SIZE, hardItems.length));
   TEST = picked.map(buildTestItem);
 
+  return true;
+}
+
+function buildProblemReviewTest(review){
+  answers.clear();
+  if (!review || !Array.isArray(review.questionIds)) return false;
+
+  const pendingIds = review.questionIds
+    .map(String)
+    .filter(id => (review.progress?.[id]?.streak || 0) < PROBLEM_CLEAR_STREAK);
+
+  if (!pendingIds.length) return false;
+
+  const pendingSet = new Set(pendingIds);
+  const picked = ALL.filter(x => pendingSet.has(String(x.n)));
+  if (!picked.length) return false;
+
+  TEST = picked.map(buildTestItem);
   return true;
 }
 
@@ -1526,6 +1576,233 @@ function saveQStats(allStats){
   localStorage.setItem(QSTATS_KEY, JSON.stringify(allStats));
 }
 
+function createEmptyQStat(){
+  return {
+    shown: 0,
+    correct: 0,
+    wrong: 0,
+    streak: 0,
+    lastSeen: "",
+    lastCorrectAt: "",
+    lastResult: "",
+    attempts: [],
+    learnedOnce: false,
+    relapseCount: 0,
+    problemScore: 0,
+    problemMasteredAt: ""
+  };
+}
+
+function normalizeQStat(stat){
+  const base = createEmptyQStat();
+  const normalized = Object.assign(base, stat && typeof stat === "object" ? stat : {});
+  normalized.shown = Number(normalized.shown || 0);
+  normalized.correct = Number(normalized.correct || 0);
+  normalized.wrong = Number(normalized.wrong || 0);
+  normalized.streak = Number(normalized.streak || 0);
+  normalized.relapseCount = Number(normalized.relapseCount || 0);
+  normalized.problemScore = Number(normalized.problemScore || 0);
+  normalized.learnedOnce = Boolean(normalized.learnedOnce);
+  normalized.attempts = Array.isArray(normalized.attempts)
+    ? normalized.attempts.slice(-PROBLEM_ATTEMPT_LIMIT).filter(x => x && typeof x === "object")
+    : [];
+  return normalized;
+}
+
+function hasRecentWrongAfterMastery(stat){
+  if (!stat.problemMasteredAt) return true;
+  const last = stat.attempts[stat.attempts.length - 1];
+  return Boolean(last && last.ok === false);
+}
+
+function calcProblemScore(stat){
+  stat = normalizeQStat(stat);
+  if (stat.shown < 3 || stat.wrong < 1) return 0;
+
+  const attempts = stat.attempts || [];
+  const recent = attempts.slice(-3);
+  const recentWrong = recent.filter(x => x && x.ok === false).length;
+  const errorRate = stat.shown > 0 ? (stat.wrong / stat.shown) : 0;
+  const learned = stat.learnedOnce || stat.streak >= 2 || (stat.shown >= 3 && stat.correct >= 2);
+
+  if (stat.problemMasteredAt && stat.streak >= PROBLEM_CLEAR_STREAK && !hasRecentWrongAfterMastery(stat)){
+    return 0;
+  }
+
+  let qualifies = false;
+  if (learned && stat.relapseCount >= 1) qualifies = true;
+  if (stat.shown >= 4 && stat.wrong >= 2 && errorRate >= 0.4) qualifies = true;
+  if (stat.shown >= 4 && recentWrong >= 2) qualifies = true;
+
+  if (!qualifies) return 0;
+
+  return Math.round(
+    stat.wrong * 2 +
+    stat.relapseCount * 6 +
+    recentWrong * 4 +
+    errorRate * 10 -
+    Math.min(stat.streak, 3) * 2
+  );
+}
+
+function getProblemReviewKey(bankKey){
+  return `quiz_problem_review_${resolveBankKey(bankKey)}_v${PROBLEM_REVIEW_VERSION}`;
+}
+
+function loadProblemReview(bankKey){
+  const review = readJson(getProblemReviewKey(bankKey), null);
+  if (!review || typeof review !== "object" || !Array.isArray(review.questionIds)) return null;
+  review.bankKey = resolveBankKey(review.bankKey || bankKey);
+  review.questionIds = review.questionIds.map(String).slice(0, PROBLEM_REVIEW_SIZE);
+  review.progress = (review.progress && typeof review.progress === "object") ? review.progress : {};
+  review.active = review.active !== false;
+  return review;
+}
+
+function saveProblemReview(bankKey, review){
+  localStorage.setItem(getProblemReviewKey(bankKey), JSON.stringify(review));
+}
+
+function clearProblemReview(bankKey){
+  localStorage.removeItem(getProblemReviewKey(bankKey));
+}
+
+function getProblemCandidates(bankKey){
+  const key = resolveBankKey(bankKey);
+  const allStats = loadQStats();
+  const bankStats = allStats[key] || {};
+
+  return Object.entries(bankStats)
+    .map(([bankN, rawStat]) => {
+      const stat = normalizeQStat(rawStat);
+      stat.problemScore = calcProblemScore(stat);
+      return { bankN: String(bankN), stat, score: stat.problemScore };
+    })
+    .filter(x => x.score > 0)
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if ((b.stat.relapseCount || 0) !== (a.stat.relapseCount || 0)) {
+        return (b.stat.relapseCount || 0) - (a.stat.relapseCount || 0);
+      }
+      return (b.stat.wrong || 0) - (a.stat.wrong || 0);
+    });
+}
+
+function ensureProblemReview(bankKey){
+  const key = resolveBankKey(bankKey);
+  const existing = loadProblemReview(key);
+  if (existing && existing.active && existing.questionIds.length) return existing;
+
+  const candidates = getProblemCandidates(key).slice(0, PROBLEM_REVIEW_SIZE);
+  if (candidates.length < PROBLEM_REVIEW_SIZE) return null;
+
+  const review = {
+    active: true,
+    bankKey: key,
+    startedAt: new Date().toISOString(),
+    questionIds: candidates.map(x => String(x.bankN)),
+    progress: {}
+  };
+  review.questionIds.forEach(id => {
+    review.progress[id] = { streak: 0 };
+  });
+  saveProblemReview(key, review);
+  return review;
+}
+
+function getForcedProblemBank(){
+  const bankKeys = Object.keys(window.QUIZ_BANKS || {});
+  for (const key of bankKeys){
+    const review = loadProblemReview(key);
+    if (review && review.active && review.questionIds.length) return resolveBankKey(key);
+  }
+  for (const key of bankKeys){
+    if (getProblemCandidates(key).length >= PROBLEM_REVIEW_SIZE) return resolveBankKey(key);
+  }
+  return null;
+}
+
+function getProblemReviewStatus(bankKey = currentBankKey){
+  const key = resolveBankKey(bankKey);
+  const review = loadProblemReview(key);
+  if (review && review.active && review.questionIds.length){
+    const done = review.questionIds.filter(id => (review.progress?.[id]?.streak || 0) >= PROBLEM_CLEAR_STREAK).length;
+    return { bankKey: key, active: true, total: review.questionIds.length, done, pending: review.questionIds.length - done };
+  }
+  const count = getProblemCandidates(key).length;
+  return { bankKey: key, active: false, total: Math.min(count, PROBLEM_REVIEW_SIZE), done: 0, pending: Math.min(count, PROBLEM_REVIEW_SIZE) };
+}
+
+function markProblemQuestionsMastered(bankKey, questionIds){
+  const key = resolveBankKey(bankKey);
+  const allStats = loadQStats();
+  if (!allStats[key]) allStats[key] = {};
+  const now = new Date().toISOString();
+  questionIds.forEach(id => {
+    const stat = normalizeQStat(allStats[key][String(id)]);
+    stat.problemMasteredAt = now;
+    stat.relapseCount = 0;
+    stat.problemScore = 0;
+    allStats[key][String(id)] = stat;
+  });
+  saveQStats(allStats);
+}
+
+function processProblemReviewRound(bankKey, results){
+  const key = resolveBankKey(bankKey);
+  const review = loadProblemReview(key);
+  if (!review || !review.active) return { active: false, done: true, pending: [] };
+
+  for (const result of results){
+    const id = String(result.bankN);
+    if (!review.progress[id]) review.progress[id] = { streak: 0 };
+    if (result.ok){
+      review.progress[id].streak = (review.progress[id].streak || 0) + 1;
+    } else {
+      review.progress[id].streak = 0;
+    }
+  }
+
+  const pending = review.questionIds
+    .map(String)
+    .filter(id => (review.progress?.[id]?.streak || 0) < PROBLEM_CLEAR_STREAK);
+
+  if (pending.length === 0){
+    markProblemQuestionsMastered(key, review.questionIds);
+    clearProblemReview(key);
+    return { active: true, done: true, pending: [] };
+  }
+
+  saveProblemReview(key, review);
+  return { active: true, done: false, pending };
+}
+
+function continueProblemReviewRound(result){
+  const review = loadProblemReview(activeProblemReviewBank || currentBankKey);
+  if (!review) return false;
+
+  answers.clear();
+  const built = buildProblemReviewTest(review);
+  if (!built) return false;
+
+  renderTest();
+  elOut.innerHTML = `
+    <div class="result" tabindex="-1">Закрепление продолжается</div>
+    <div class="muted">Осталось закрыть: <b>${result.pending.length}</b>. Ошибка сбрасывает серию, правильный ответ добавляет +1.</div>
+  `;
+  elOut.style.display = "block";
+  startTimer();
+  updateStartDashboard();
+  return true;
+}
+
+function evaluateAnswerForItem(item, user, currentMode = mode){
+  if (currentMode === "mcq"){
+    return item.correctIndex !== -1 && user === item.correctIndex;
+  }
+  return acceptDisplayText(user ?? "", item.correctText);
+}
+
 function updateQStatsOnFinish(TEST, answers, mode, bankKey){
   if (!TEST || TEST.length === 0) {
     console.warn("updateQStatsOnFinish: TEST пустой");
@@ -1553,29 +1830,37 @@ function updateQStatsOnFinish(TEST, answers, mode, bankKey){
     const bankN = String(item.bankN);
     
     if (!bankStats[bankN]){
-      bankStats[bankN] = { shown: 0, correct: 0, wrong: 0, streak: 0, lastSeen: "", lastResult: "" };
+      bankStats[bankN] = createEmptyQStat();
     }
     
-    const stat = bankStats[bankN];
+    const stat = normalizeQStat(bankStats[bankN]);
+    const wasLearned = stat.learnedOnce || stat.streak >= 2 || (stat.shown >= 3 && stat.correct >= 2);
+    const previousWasCorrect = stat.lastResult === "ok" || stat.streak > 0;
     stat.shown++;
     stat.lastSeen = now;
     
-    let ok = false;
-    if (mode === "mcq"){
-      ok = (item.correctIndex !== -1 && user === item.correctIndex);
-    } else {
-      ok = acceptDisplayText(user ?? "", item.correctText);
-    }
+    const ok = evaluateAnswerForItem(item, user, mode);
+    stat.attempts.push({ ts: now, ok });
+    stat.attempts = stat.attempts.slice(-PROBLEM_ATTEMPT_LIMIT);
     
     if (ok){
       stat.correct++;
       stat.streak++;
       stat.lastResult = "ok";
+      stat.lastCorrectAt = now;
+      if (stat.streak >= 2 && stat.correct >= 2){
+        stat.learnedOnce = true;
+      }
     } else {
       stat.wrong++;
+      if (wasLearned && previousWasCorrect){
+        stat.relapseCount++;
+      }
       stat.streak = 0;
       stat.lastResult = "bad";
     }
+    stat.problemScore = calcProblemScore(stat);
+    bankStats[bankN] = stat;
     updatedCount++;
   }
   
@@ -1681,6 +1966,7 @@ function renderTest(){
   for (const item of itemsToShow){
     const card = document.createElement("div");
     card.className = "card";
+    if (isProblemReviewMode) card.classList.add("problem-review-card");
     card.dataset.qid = item.id;
     if (hardMode) card.id = "activeQuestionCard";
 
@@ -1727,6 +2013,15 @@ function renderTest(){
     qhead.appendChild(title);
     qhead.appendChild(flagLabel);
     card.appendChild(qhead);
+
+    if (isProblemReviewMode){
+      const review = loadProblemReview(activeProblemReviewBank || currentBankKey);
+      const streak = review?.progress?.[String(item.bankN)]?.streak || 0;
+      const note = document.createElement("div");
+      note.className = "problem-review-note";
+      note.textContent = `Закрепление: нужно ${PROBLEM_CLEAR_STREAK} правильных подряд. Сейчас: ${streak}/${PROBLEM_CLEAR_STREAK}. Ошибка сбросит серию.`;
+      card.appendChild(note);
+    }
     
     // Прогресс-бар для hardmode
     if (hardMode){
@@ -1806,6 +2101,18 @@ function renderTest(){
   setupSkipHighlighter();
 
   const notFound = TEST.filter(t => t.correctIndex === -1).length;
+  if (isProblemReviewMode){
+    const status = getProblemReviewStatus(activeProblemReviewBank || currentBankKey);
+    setStatusPill("Закрепление проблемных");
+    setMetaText(
+      `Осталось закрыть: ${status.pending}. Нужно ${PROBLEM_CLEAR_STREAK} правильных подряд по каждому вопросу.` +
+      (notFound ? ` Ключ не найден: ${notFound}` : "")
+    );
+    finishBtn.disabled = false;
+    learnBtn.disabled = true;
+    restartBtn.disabled = true;
+    return;
+  }
   setStatusPill("Тест запущен");
   setMetaText(
     `Вопросов: ${TEST.length} (из ${ALL.length}). Режим: ${mode === "mcq" ? "A–E" : "текст"}.` +
@@ -1850,6 +2157,7 @@ function finish(){
     }
   }
 
+  const reviewResults = [];
   for (const item of TEST){
     const user = answers.get(item.id);
 
@@ -1883,8 +2191,10 @@ function finish(){
       addHardQuestion(item.bankN);
     }
 
-    if (ok) correct++;
-    else {
+    reviewResults.push({ bankN: String(item.bankN), ok });
+    if (ok) {
+      correct++;
+    } else {
       const yourText = (mode === "mcq")
         ? (typeof user === "number" ? item.options[user] : "(пусто)")
         : (user || "(пусто)");
@@ -1903,6 +2213,20 @@ const passed = (TEST.length >= 30 && percent >= 95);
 
 // Обновляем статистику по вопросам
 updateQStatsOnFinish(TEST, answers, mode, bankKey);
+
+if (isProblemReviewMode){
+  const reviewRound = processProblemReviewRound(activeProblemReviewBank || bankKey, reviewResults);
+  saveHard();
+  saveHardStats();
+
+  if (!reviewRound.done){
+    if (continueProblemReviewRound(reviewRound)) return;
+  } else {
+    isProblemReviewMode = false;
+    activeProblemReviewBank = null;
+    updateStartDashboard();
+  }
+}
 
 // === HARDMODE ACHIEVEMENT (только если 100% и тест >= 50) ===
 const hardModePassed = hardMode && TEST.length >= 50 && percent === 100;
@@ -2350,10 +2674,20 @@ function setBank(name) {
 }
 
 const saved = resolveBankKey(localStorage.getItem("quiz_bank") || DEFAULT_BANK_KEY);
-bankSelect.value = saved;
-setBank(saved);
+const initialForcedProblemBank = getForcedProblemBank();
+const initialBank = initialForcedProblemBank || saved;
+bankSelect.value = initialBank;
+setBank(initialBank);
 
 bankSelect.addEventListener("change", () => {
+  const forcedProblemBank = getForcedProblemBank();
+  if (forcedProblemBank && bankSelect.value !== forcedProblemBank){
+    bankSelect.value = forcedProblemBank;
+    setBank(forcedProblemBank);
+    setStatusPill("Закрепление обязательно");
+    setMetaText("Сначала закрой проблемные вопросы: обычные тесты пока заблокированы.");
+    return;
+  }
   setBank(bankSelect.value);
 });
 
@@ -2361,6 +2695,14 @@ document.querySelectorAll("[data-bank-tile]").forEach(tile => {
   tile.addEventListener("click", () => {
     const key = tile.dataset.bankTile;
     if (!key || bankSelect.value === key) return;
+    const forcedProblemBank = getForcedProblemBank();
+    if (forcedProblemBank && key !== forcedProblemBank){
+      bankSelect.value = forcedProblemBank;
+      setBank(forcedProblemBank);
+      setStatusPill("Закрепление обязательно");
+      setMetaText("Сначала закрой проблемные вопросы: обычные тесты пока заблокированы.");
+      return;
+    }
     bankSelect.value = key;
     setBank(key);
   });
@@ -2402,7 +2744,31 @@ if (translateBtn){
 let lastStartWasHardOnly = false;
 
 function startQuiz({ hardOnly = false } = {}){
-  const built = hardOnly ? buildTestHard() : buildTest();
+  const forcedProblemBank = getForcedProblemBank();
+  let built = false;
+
+  if (forcedProblemBank){
+    if (currentBankKey !== forcedProblemBank){
+      if (bankSelect) bankSelect.value = forcedProblemBank;
+      setBank(forcedProblemBank);
+    }
+
+    const review = ensureProblemReview(forcedProblemBank);
+    if (!review) return;
+
+    isProblemReviewMode = true;
+    activeProblemReviewBank = forcedProblemBank;
+    hardOnly = false;
+    hardMode = false;
+    if (hardModeToggle) hardModeToggle.checked = false;
+    localStorage.setItem("quiz_hardmode", "0");
+    built = buildProblemReviewTest(review);
+  } else {
+    isProblemReviewMode = false;
+    activeProblemReviewBank = null;
+    built = hardOnly ? buildTestHard() : buildTest();
+  }
+
   if (built === false) return;
 
   appEl.classList.remove("has-output");
@@ -2451,6 +2817,8 @@ function abortTest(){
   TEST = [];
   answers.clear();
   curIdx = 0;
+  isProblemReviewMode = false;
+  activeProblemReviewBank = null;
   elQuiz.innerHTML = "";
   elOut.style.display = "none";
   elOut.innerHTML = "";
