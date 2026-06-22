@@ -231,6 +231,10 @@ let leaderboardRowsCache = [];
 let microphoneAccessGranted = false;
 const liveCoachHintUsed = new Set();
 let liveCoachHintsLocked = false;
+const coachMemory = {
+  recent: [],
+  disrespectCount: 0
+};
 
 async function apiJson(url, options = {}){
   const response = await fetch(url, {
@@ -2228,6 +2232,59 @@ function getSpeechRecognitionCtor(){
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+function isDisrespectfulCoachText(text){
+  const normalized = String(text || "")
+    .toLowerCase()
+    .replace(/ё/g, "е")
+    .replace(/[^a-zа-я0-9\s]/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return false;
+  return [
+    "идиот",
+    "дебил",
+    "тупой",
+    "тупица",
+    "дурак",
+    "лох",
+    "чмо",
+    "убог",
+    "мраз",
+    "гандон",
+    "уеб",
+    "хуй",
+    "хуе",
+    "пизд",
+    "ебан",
+    "ебло",
+    "соси",
+    "заткнись",
+    "shut up",
+    "stupid",
+    "idiot",
+    "dumb"
+  ].some(token => normalized.includes(token));
+}
+
+function rememberCoachExchange(kind, text, extra = {}){
+  const entry = {
+    kind,
+    text: String(text || "").slice(0, 220),
+    at: Date.now(),
+    disrespectful: Boolean(extra.disrespectful),
+  };
+  coachMemory.recent.push(entry);
+  while (coachMemory.recent.length > 10) coachMemory.recent.shift();
+  if (entry.disrespectful) coachMemory.disrespectCount++;
+}
+
+function getCoachMemoryPayload(){
+  return {
+    disrespectCount: coachMemory.disrespectCount,
+    recent: coachMemory.recent.slice(-6),
+  };
+}
+
 function setCoachHelpControlsLocked(card, locked, text = ""){
   const box = card?.querySelector?.(".coach-help");
   if (!box) return;
@@ -2278,6 +2335,15 @@ function askLiveCoachHint(item, card, initialText = ""){
     if (answer) answer.textContent = "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0441\u043f\u0440\u043e\u0441\u0438 \u0447\u0442\u043e-\u043d\u0438\u0431\u0443\u0434\u044c. \u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043c\u044b\u0441\u043b\u0438 \u043d\u0435 \u0447\u0438\u0442\u0430\u0435\u0442.";
     return;
   }
+  const disrespectful = isDisrespectfulCoachText(text);
+  rememberCoachExchange("liveHintUser", text, { disrespectful });
+  if (disrespectful) {
+    applyCoachDisciplinePenalty({
+      type: "discipline_penalty",
+      reason: "first disrespectful hint request",
+      visual: "cards"
+    }, { event: "liveHint", data: { item } });
+  }
 
   if (answer) answer.textContent = "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0434\u0443\u043c\u0430\u0435\u0442...";
   if (askBtn) askBtn.disabled = true;
@@ -2299,11 +2365,14 @@ function askLiveCoachHint(item, card, initialText = ""){
         missedStreak: coachState?.missedStreak || 0,
         questionNumber: item.n,
         problemCandidates: getProblemCandidates(currentBankKey).length,
+        userDisrespectedGeneral: disrespectful,
+        coachMemory: getCoachMemoryPayload(),
       },
     }),
   }).then(data => {
     const message = normalizeCoachDisplayMessage(data?.message || "");
     if (answer) answer.textContent = message || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u043e\u043c\u043e\u043b\u0447\u0430\u043b. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u0441\u0444\u043e\u0440\u043c\u0443\u043b\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0438\u043d\u0430\u0447\u0435.";
+    if (message) rememberCoachExchange("coach", message);
     if (data?.action) applyAiCoachAction(data.action, { event: "liveHint", data: { item }, message });
     if (message) {
       if (hintKey) liveCoachHintUsed.add(hintKey);
@@ -2479,6 +2548,15 @@ function showGeneralCommandDialog(action, context = {}){
     const askGeneralAboutReply = async text => {
       const reply = String(text || "").trim();
       if (!reply || waitingForAi || closing) return;
+      const disrespectful = isDisrespectfulCoachText(reply);
+      rememberCoachExchange("commandReplyUser", reply, { disrespectful });
+      if (disrespectful) {
+        applyCoachDisciplinePenalty({
+          type: "discipline_penalty",
+          reason: "first disrespectful voice reply",
+          visual: "topbar"
+        }, { event: "commandReply" });
+      }
       setWaiting(true);
       setTranscript("\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0434\u0443\u043c\u0430\u0435\u0442 \u043d\u0430\u0434 \u043e\u0442\u0432\u0435\u0442\u043e\u043c...");
       try {
@@ -2496,11 +2574,14 @@ function showGeneralCommandDialog(action, context = {}){
             },
             stats: Object.assign({}, getAiCoachStats(), {
               proposedSize: Number(action?.size || 3) || 3,
+              userDisrespectedGeneral: disrespectful,
+              coachMemory: getCoachMemoryPayload(),
             }),
             problemMode: Boolean(state.problemReview?.active || state.problemReview?.locked),
           }),
         });
         if (data?.message && message) message.textContent = normalizeCoachDisplayMessage(data.message);
+        if (data?.message) rememberCoachExchange("coach", normalizeCoachDisplayMessage(data.message));
         const nextAction = data?.action && typeof data.action === "object" ? data.action : { type: "none" };
         if (String(nextAction.type || "none") === "start_micro_drill") {
           closeResult = true;
@@ -2672,6 +2753,7 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
           problemCandidates: getProblemCandidates(currentBankKey).length,
           severeReviewRecommended: event === "finish" && (Number(data.percent || 0) <= 60 || Number(coachState?.wrongStreak || 0) >= 8),
           canStartMicroDrill: !startBtn.disabled || !TEST.length,
+          coachMemory: getCoachMemoryPayload(),
         },
       }),
     });
@@ -2689,6 +2771,7 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
     if (!coachState || coachState.lastMessage !== localMessage) return;
 
     coachState.lastMessage = message;
+    rememberCoachExchange("coach", message);
     coachState.lastMessageAt = Date.now();
     saveCoachState();
     renderCoachPanel(message);
