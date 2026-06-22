@@ -1764,6 +1764,32 @@ function getCoachAvatarMood(event = "", tone = coachState?.tone || "kind", actio
   return "kind";
 }
 
+function getDisciplineAvatarMood(action = {}){
+  const visual = String(action.visual || "");
+  if (visual === "topbar") return "danger";
+  if (visual === "sidebar") return "strict";
+  if (visual === "cards") return "offended";
+  if (visual === "panel") return "kind";
+  if (visual === "tilt") return "drill";
+  return ["offended", "danger", "strict", "drill", "kind"][Math.floor(Math.random() * 5)];
+}
+
+function randomCoachDisciplineAction(reason = "first disrespectful message"){
+  const scenes = [
+    { visual: "cards", reason: "cards scattered after disrespect" },
+    { visual: "topbar", reason: "topbar relocated after disrespect" },
+    { visual: "sidebar", reason: "sidebar drift after disrespect" },
+    { visual: "panel", reason: "coach panel taunt after disrespect" },
+    { visual: "tilt", reason: "interface tilted after disrespect" },
+  ];
+  const scene = scenes[Math.floor(Math.random() * scenes.length)];
+  return {
+    type: "discipline_penalty",
+    reason: scene.reason || reason,
+    visual: scene.visual,
+  };
+}
+
 function setCoachAvatarMood(mood){
   if (!coachState) coachState = loadCoachState();
   const nextMood = COACH_AVATARS[mood] ? mood : "kind";
@@ -2337,14 +2363,22 @@ function setCoachHelpControlsLocked(card, locked, text = ""){
 }
 
 function refreshCoachHelpLocks(){
-  const text = "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043e\u0431\u0438\u0434\u0435\u043b\u0441\u044f: \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0434\u043e \u043d\u043e\u0432\u043e\u0433\u043e \u0442\u0435\u0441\u0442\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u044b. \u041c\u0430\u0440\u0448 \u0434\u0443\u043c\u0430\u0442\u044c \u0441\u0430\u043c\u043e\u0441\u0442\u043e\u044f\u0442\u0435\u043b\u044c\u043d\u043e.";
+  const bodyClass = document.body.className;
+  const text = bodyClass.includes("general-chaos--topbar")
+    ? "\u0428\u0442\u0430\u0431 \u043f\u0435\u0440\u0435\u0435\u0445\u0430\u043b. \u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0437\u0430\u043a\u0440\u044b\u0442\u044b, \u0438\u0449\u0438 \u0434\u043e\u0440\u043e\u0433\u0443 \u043c\u044b\u0441\u043b\u044f\u043c\u0438."
+    : bodyClass.includes("general-chaos--sidebar")
+      ? "\u0421\u0430\u0439\u0434\u0431\u0430\u0440 \u0443\u0448\u0435\u043b \u0432 \u0441\u0430\u043c\u043e\u0432\u043e\u043b\u043a\u0443. \u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0442\u043e\u0436\u0435."
+      : bodyClass.includes("general-chaos--panel")
+        ? "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0441\u043c\u0435\u0435\u0442\u0441\u044f \u0438 \u043c\u043e\u043b\u0447\u0438\u0442. \u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043e\u043a \u0431\u043e\u043b\u044c\u0448\u0435 \u043d\u0435\u0442."
+        : "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043e\u0431\u0438\u0434\u0435\u043b\u0441\u044f: \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0434\u043e \u043d\u043e\u0432\u043e\u0433\u043e \u0442\u0435\u0441\u0442\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u044b. \u041c\u0430\u0440\u0448 \u0434\u0443\u043c\u0430\u0442\u044c \u0441\u0430\u043c\u043e\u0441\u0442\u043e\u044f\u0442\u0435\u043b\u044c\u043d\u043e.";
   document.querySelectorAll(".card").forEach(card => setCoachHelpControlsLocked(card, liveCoachHintsLocked, liveCoachHintsLocked ? text : ""));
 }
 
 function applyCoachDisciplinePenalty(action = {}, context = {}){
   liveCoachHintsLocked = true;
+  if (!action.visual) action = Object.assign({}, action, { visual: "panel" });
   setGeneralChaosMode(true, action.visual);
-  setCoachAvatarMood("offended");
+  setCoachAvatarMood(getDisciplineAvatarMood(action));
   const reason = String(action.reason || "").trim();
   showAiActionToast(reason
     ? `\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0443\u0440\u0435\u0437\u0430\u043b \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438: ${reason}`
@@ -2377,13 +2411,6 @@ function askLiveCoachHint(item, card, initialText = ""){
   }
   const disrespectful = isDisrespectfulCoachText(text);
   rememberCoachExchange("liveHintUser", text, { disrespectful });
-  if (disrespectful) {
-    applyCoachDisciplinePenalty({
-      type: "discipline_penalty",
-      reason: "first disrespectful hint request",
-      visual: "cards"
-    }, { event: "liveHint", data: { item } });
-  }
 
   if (answer) answer.textContent = "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0434\u0443\u043c\u0430\u0435\u0442...";
   if (askBtn) askBtn.disabled = true;
@@ -2428,6 +2455,9 @@ function askLiveCoachHint(item, card, initialText = ""){
     }
   }).catch(error => {
     console.warn("[coach] live hint failed:", error);
+    if (disrespectful) {
+      applyCoachDisciplinePenalty(randomCoachDisciplineAction("fallback after disrespectful hint request"), { event: "liveHint", data: { item } });
+    }
     if (answer) answer.textContent = error?.message || "\u0421\u0432\u044f\u0437\u044c \u0441 \u0433\u0435\u043d\u0435\u0440\u0430\u043b\u043e\u043c \u0443\u043f\u0430\u043b\u0430.";
   }).finally(() => {
     const used = hintKey && liveCoachHintUsed.has(hintKey);
@@ -2590,13 +2620,6 @@ function showGeneralCommandDialog(action, context = {}){
       if (!reply || waitingForAi || closing) return;
       const disrespectful = isDisrespectfulCoachText(reply);
       rememberCoachExchange("commandReplyUser", reply, { disrespectful });
-      if (disrespectful) {
-        applyCoachDisciplinePenalty({
-          type: "discipline_penalty",
-          reason: "first disrespectful voice reply",
-          visual: "topbar"
-        }, { event: "commandReply" });
-      }
       setWaiting(true);
       setTranscript("\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0434\u0443\u043c\u0430\u0435\u0442 \u043d\u0430\u0434 \u043e\u0442\u0432\u0435\u0442\u043e\u043c...");
       try {
@@ -2623,6 +2646,16 @@ function showGeneralCommandDialog(action, context = {}){
         if (data?.message && message) message.textContent = normalizeCoachDisplayMessage(data.message);
         if (data?.message) rememberCoachExchange("coach", normalizeCoachDisplayMessage(data.message));
         const nextAction = data?.action && typeof data.action === "object" ? data.action : { type: "none" };
+        if (String(nextAction.type || "none") === "discipline_penalty") {
+          applyCoachDisciplinePenalty(nextAction, { event: "commandReply" });
+          closeResult = false;
+          if (ok) {
+            ok.textContent = "\u0417\u0430\u043a\u0440\u044b\u0442\u044c";
+            ok.disabled = false;
+          }
+          setTranscript("\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0441\u0430\u043c \u0432\u044b\u0431\u0440\u0430\u043b \u043d\u0430\u043a\u0430\u0437\u0430\u043d\u0438\u0435. \u0421\u0442\u0440\u043e\u0439 \u0434\u0440\u043e\u0433\u043d\u0443\u043b.");
+          return;
+        }
         if (String(nextAction.type || "none") === "start_micro_drill") {
           closeResult = true;
           setTranscript("\u041f\u0440\u0438\u043a\u0430\u0437 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0435\u043d. \u0417\u0430\u043f\u0443\u0441\u043a\u0430\u044e \u043e\u0442\u0440\u0430\u0431\u043e\u0442\u043a\u0443.");
@@ -2637,6 +2670,9 @@ function showGeneralCommandDialog(action, context = {}){
         setTranscript("\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u0438\u043d\u044f\u043b \u043e\u0442\u0432\u0435\u0442. \u041e\u0442\u0440\u0430\u0431\u043e\u0442\u043a\u0430 \u043d\u0435 \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442\u0441\u044f.");
       } catch (error) {
         console.warn("[coach] voice reply failed:", error);
+        if (disrespectful) {
+          applyCoachDisciplinePenalty(randomCoachDisciplineAction("fallback after disrespectful voice reply"), { event: "commandReply" });
+        }
         closeResult = false;
         if (message) message.textContent = error?.message || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043d\u0435 \u0434\u043e\u0441\u0442\u0443\u0447\u0430\u043b\u0441\u044f \u0434\u043e \u0448\u0442\u0430\u0431\u0430.";
         if (ok) {

@@ -29,7 +29,7 @@ loadDotEnv();
 
 const PORT = Number(process.env.PORT || 8765);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.5";
+const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
 const SESSION_COOKIE = "session_tester_sid";
 const ADMIN_USERNAMES = new Set(
   String(process.env.ADMIN_USERNAMES || "")
@@ -466,13 +466,41 @@ function payloadHasCoachDisrespect(payload){
 }
 
 function coachDisciplineFallback(){
+  const scenes = [
+    {
+      message: "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u0438\u043d\u044f\u043b \u0434\u043e\u043a\u043b\u0430\u0434: \u044f\u0437\u044b\u043a \u0443 \u0442\u0435\u0431\u044f \u0431\u044b\u0441\u0442\u0440\u0435\u0435 \u043c\u043e\u0437\u0433\u0430. \u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0437\u0430\u043a\u0440\u044b\u0442\u044b, \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0448\u044c \u0441\u0430\u043c.",
+      visual: "cards",
+      reason: "cards scattered after disrespect",
+    },
+    {
+      message: "\u0428\u0442\u0430\u0431 \u043d\u0435 \u0443\u0440\u043d\u0430 \u0434\u043b\u044f \u0442\u0432\u043e\u0435\u0433\u043e \u0431\u0430\u0437\u0430\u0440\u0430. \u0428\u0430\u043f\u043a\u0443 \u0443\u043d\u0435\u0441\u043b\u043e, \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0442\u043e\u0436\u0435.",
+      visual: "topbar",
+      reason: "topbar relocated after disrespect",
+    },
+    {
+      message: "\u0422\u044b \u0441\u0431\u0438\u043b \u0441\u0442\u0440\u043e\u0439. \u041f\u0430\u043d\u0435\u043b\u044c \u043f\u043e\u0435\u0445\u0430\u043b\u0430, \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0432 \u043a\u0430\u0440\u0446\u0435\u0440.",
+      visual: "sidebar",
+      reason: "sidebar drift after disrespect",
+    },
+    {
+      message: "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0443\u043b\u044b\u0431\u043d\u0443\u043b\u0441\u044f. \u042d\u0442\u043e \u043f\u043b\u043e\u0445\u043e\u0439 \u0437\u043d\u0430\u043a: \u0442\u0435\u043f\u0435\u0440\u044c \u0434\u0443\u043c\u0430\u0435\u0448\u044c \u0431\u0435\u0437 \u043a\u043e\u0441\u0442\u044b\u043b\u0435\u0439.",
+      visual: "panel",
+      reason: "coach panel taunt after disrespect",
+    },
+    {
+      message: "\u041e\u0442 \u0442\u0430\u043a\u043e\u0433\u043e \u0442\u043e\u043d\u0430 \u0434\u0430\u0436\u0435 \u0438\u043d\u0442\u0435\u0440\u0444\u0435\u0439\u0441 \u043f\u043e\u043a\u043e\u0441\u0438\u043b\u0441\u044f. \u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0441\u043d\u044f\u0442\u044b \u0441 \u0434\u043e\u0432\u043e\u043b\u044c\u0441\u0442\u0432\u0438\u044f.",
+      visual: "tilt",
+      reason: "interface tilted after disrespect",
+    },
+  ];
+  const scene = scenes[Math.floor(Math.random() * scenes.length)];
   return {
-    message: "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u0438\u043d\u044f\u043b \u0434\u043e\u043a\u043b\u0430\u0434: \u044f\u0437\u044b\u043a \u0443 \u0442\u0435\u0431\u044f \u0431\u044b\u0441\u0442\u0440\u0435\u0435 \u043c\u043e\u0437\u0433\u0430. \u041f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0437\u0430\u043a\u0440\u044b\u0442\u044b, \u0442\u0435\u043f\u0435\u0440\u044c \u0440\u0430\u0431\u043e\u0442\u0430\u0435\u0448\u044c \u0433\u043e\u043b\u043e\u0432\u043e\u0439.",
+    message: scene.message,
     action: {
       type: "discipline_penalty",
       size: 3,
-      reason: "first direct disrespect",
-      visual: "cards",
+      reason: scene.reason,
+      visual: scene.visual,
     },
   };
 }
@@ -551,7 +579,8 @@ async function handleCoachMessage(req, res){
               "Sound like a living game character, not an AI assistant or notification: short, direct, emotional, varied, a little theatrical, with dry humor when appropriate. " +
               "Avoid repeating the same sentence structure. React to the exact event, score, streak, and weak spots instead of generic motivational lines. " +
               "Tone kind is warm and human, strict pushes focus, drill scolds carelessness, danger is harsher but still controlled. " +
-              "If the user insults, mocks, or provokes the general in userQuestion or userReply, answer with sharper sarcastic military banter and put them back on task. Be biting and memorable, but do not use profanity, slurs, threats, humiliation, or personal attacks. On the first direct insult or disrespectful message, you must return action.type discipline_penalty to remove live hints until the next test and optionally set action.visual to topbar|sidebar|cards|panel|tilt; never block answering the test. Use stats.coachMemory and stats.userDisrespectedGeneral to remember prior behavior. " +
+              "If the user insults, mocks, or provokes the general in userQuestion or userReply, answer with sharper sarcastic military banter and put them back on task. Be biting and memorable, but do not use profanity, slurs, threats, humiliation, or personal attacks. On the first direct insult or disrespectful message, you must return action.type discipline_penalty to remove live hints until the next test and you must choose action.visual yourself from topbar|sidebar|cards|panel|tilt; never block answering the test. Use stats.coachMemory and stats.userDisrespectedGeneral to remember prior behavior. " +
+              "When stats.userDisrespectedGeneral is true, the only valid action is discipline_penalty and action.visual is required. Pick the visual that best matches your mood and the user's insult. " +
               "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
               "If event is liveHint, the user is asking for help during an active question. You may give a hint, explain the concept/process, or refuse if they ask for the exact answer. Never reveal the correct option letter, exact answer text, or eliminate options too directly during liveHint. For liveHint return action.type none unless the user is disrespectful; disrespect must override this and return discipline_penalty. " +
               "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"short internal reason\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
@@ -594,9 +623,6 @@ async function handleCoachMessage(req, res){
         message: AI_COACH_UNAVAILABLE_MESSAGE,
       });
       return;
-    }
-    if (userDisrespectedGeneral && decision.action?.type !== "discipline_penalty") {
-      decision.action = coachDisciplineFallback().action;
     }
     console.log("[coach] decision:", {
       event: payload.event,
