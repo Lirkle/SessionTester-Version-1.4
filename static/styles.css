@@ -2769,6 +2769,50 @@ h1,
   border-bottom:1px solid rgba(255,255,255,.10);
 }
 
+.coach-help{
+  position:relative;
+  z-index:1;
+  margin:10px 0 12px;
+  padding:10px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:8px;
+  background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.025));
+}
+
+.coach-help__row{
+  display:grid;
+  grid-template-columns:minmax(0,1fr) auto auto;
+  gap:8px;
+  align-items:center;
+}
+
+.coach-help__input{
+  width:100%;
+  min-height:38px;
+  margin:0;
+}
+
+.coach-help__ask,
+.coach-help__mic{
+  min-height:38px;
+  padding:0 12px;
+  white-space:nowrap;
+}
+
+.coach-help__mic.is-listening{
+  border-color:rgba(211,38,58,.8);
+  color:#fff;
+  box-shadow:0 0 0 1px rgba(211,38,58,.22), 0 0 22px rgba(211,38,58,.28);
+}
+
+.coach-help__answer{
+  min-height:0;
+  margin-top:8px;
+  color:var(--muted);
+  font-size:13px;
+  line-height:1.45;
+}
+
 .app.is-running .qtitle{
   color:#fff;
   font-size:15px;
@@ -2857,6 +2901,15 @@ h1,
 
 /* Final mobile performance override */
 @media (max-width:760px){
+  .coach-help__row{
+    grid-template-columns:1fr;
+  }
+
+  .coach-help__ask,
+  .coach-help__mic{
+    width:100%;
+  }
+
   body{
     background:#080c12 !important;
   }

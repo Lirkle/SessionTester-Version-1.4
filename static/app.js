@@ -2143,6 +2143,122 @@ function getSpeechRecognitionCtor(){
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+function askLiveCoachHint(item, card, initialText = ""){
+  if (!item || !card || !isAiCoachEnabled()) return;
+  const box = card.querySelector(".coach-help");
+  const input = box?.querySelector(".coach-help__input");
+  const answer = box?.querySelector(".coach-help__answer");
+  const askBtn = box?.querySelector(".coach-help__ask");
+  const text = String(initialText || input?.value || "").trim();
+  if (!text) {
+    if (answer) answer.textContent = "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0441\u043f\u0440\u043e\u0441\u0438 \u0447\u0442\u043e-\u043d\u0438\u0431\u0443\u0434\u044c. \u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043c\u044b\u0441\u043b\u0438 \u043d\u0435 \u0447\u0438\u0442\u0430\u0435\u0442.";
+    return;
+  }
+
+  if (answer) answer.textContent = "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0434\u0443\u043c\u0430\u0435\u0442...";
+  if (askBtn) askBtn.disabled = true;
+  apiJson("/api/coach-message", {
+    method: "POST",
+    body: JSON.stringify({
+      event: "liveHint",
+      tone: coachState?.tone || "strict",
+      localMessage: coachState?.lastMessage || "",
+      question: item.q || "",
+      options: Array.isArray(item.options) ? item.options : [],
+      userQuestion: text,
+      userAnswer: getAnswerTextForCoach(item, answers.get(item.id)),
+      problemMode: Boolean(isProblemReviewMode),
+      stats: {
+        wrongStreak: coachState?.wrongStreak || 0,
+        missedStreak: coachState?.missedStreak || 0,
+        questionNumber: item.n,
+        problemCandidates: getProblemCandidates(currentBankKey).length,
+      },
+    }),
+  }).then(data => {
+    const message = String(data?.message || "").trim();
+    if (answer) answer.textContent = message || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u043e\u043c\u043e\u043b\u0447\u0430\u043b. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u0441\u0444\u043e\u0440\u043c\u0443\u043b\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0438\u043d\u0430\u0447\u0435.";
+    if (message) {
+      coachState.lastMessage = message;
+      coachState.lastEvent = "liveHint";
+      coachState.lastMessageAt = Date.now();
+      saveCoachState();
+      renderCoachPanel(message);
+    }
+  }).catch(error => {
+    console.warn("[coach] live hint failed:", error);
+    if (answer) answer.textContent = error?.message || "\u0421\u0432\u044f\u0437\u044c \u0441 \u0433\u0435\u043d\u0435\u0440\u0430\u043b\u043e\u043c \u0443\u043f\u0430\u043b\u0430.";
+  }).finally(() => {
+    if (askBtn) askBtn.disabled = false;
+  });
+}
+
+function addCoachHelp(card, item){
+  const help = document.createElement("div");
+  help.className = "coach-help";
+  help.innerHTML = `
+    <div class="coach-help__row">
+      <input class="coach-help__input" type="text" placeholder="\u0421\u043f\u0440\u043e\u0441\u0438 \u0433\u0435\u043d\u0435\u0440\u0430\u043b\u0430: \u00ab\u043a\u0430\u043a \u044d\u0442\u043e \u043f\u043e\u043d\u044f\u0442\u044c?\u00bb">
+      <button class="coach-help__ask secondary" type="button">\u0421\u043f\u0440\u043e\u0441\u0438\u0442\u044c</button>
+      <button class="coach-help__mic secondary" type="button">\u0413\u043e\u043b\u043e\u0441</button>
+    </div>
+    <div class="coach-help__answer"></div>
+  `;
+  const input = help.querySelector(".coach-help__input");
+  const askBtn = help.querySelector(".coach-help__ask");
+  const micBtn = help.querySelector(".coach-help__mic");
+  const answer = help.querySelector(".coach-help__answer");
+  const Recognition = getSpeechRecognitionCtor();
+
+  askBtn?.addEventListener("click", () => askLiveCoachHint(item, card));
+  input?.addEventListener("keydown", event => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    askLiveCoachHint(item, card);
+  });
+
+  if (!Recognition) {
+    if (micBtn) {
+      micBtn.disabled = true;
+      micBtn.textContent = "\u041d\u0435\u0442 \u043c\u0438\u043a\u0440\u043e";
+    }
+  } else {
+    micBtn?.addEventListener("click", () => {
+      const recognition = new Recognition();
+      recognition.lang = "ru-RU";
+      recognition.interimResults = true;
+      recognition.continuous = false;
+      let transcript = "";
+      recognition.onstart = () => {
+        micBtn.classList.add("is-listening");
+        micBtn.textContent = "\u0421\u043b\u0443\u0448\u0430\u044e";
+        if (answer) answer.textContent = "\u0413\u043e\u0432\u043e\u0440\u0438, \u043d\u043e \u043d\u0435 \u043f\u0440\u043e\u0441\u0438 \u0433\u043e\u0442\u043e\u0432\u044b\u0439 \u043e\u0442\u0432\u0435\u0442.";
+      };
+      recognition.onresult = event => {
+        transcript = Array.from(event.results)
+          .map(result => result[0]?.transcript || "")
+          .join(" ")
+          .trim();
+        if (input) input.value = transcript;
+      };
+      recognition.onerror = () => {
+        if (answer) answer.textContent = "\u041c\u0438\u043a\u0440\u043e\u0444\u043e\u043d \u043d\u0435 \u0441\u0440\u0430\u0431\u043e\u0442\u0430\u043b.";
+      };
+      recognition.onend = () => {
+        micBtn.classList.remove("is-listening");
+        micBtn.textContent = "\u0413\u043e\u043b\u043e\u0441";
+        if (transcript) askLiveCoachHint(item, card, transcript);
+      };
+      try {
+        recognition.start();
+      } catch {
+        if (answer) answer.textContent = "\u041c\u0438\u043a\u0440\u043e\u0444\u043e\u043d \u0443\u0436\u0435 \u0437\u0430\u043d\u044f\u0442.";
+      }
+    });
+  }
+  card.appendChild(help);
+}
+
 function isAffirmativeVoiceReply(text){
   const normalized = String(text || "").toLowerCase().replace(/[.,!?;:]/g, " ").replace(/\s+/g, " ").trim();
   if (!normalized) return false;
@@ -3340,6 +3456,7 @@ function renderTest(){
     qhead.appendChild(title);
     qhead.appendChild(flagLabel);
     card.appendChild(qhead);
+    addCoachHelp(card, item);
 
     if (isProblemReviewMode){
       const review = loadProblemReview(activeProblemReviewBank || currentBankKey);

@@ -413,6 +413,8 @@ function safeCoachPayload(input){
     tone: text(input.tone).slice(0, 20),
     localMessage: text(input.localMessage),
     question: text(input.question),
+    options: Array.isArray(input.options) ? input.options.slice(0, 8).map(text) : [],
+    userQuestion: text(input.userQuestion),
     userAnswer: text(input.userAnswer),
     userReply: text(input.userReply),
     correctAnswer: text(input.correctAnswer),
@@ -478,6 +480,7 @@ async function handleCoachMessage(req, res){
               "Avoid repeating the same sentence structure. React to the exact event, score, streak, and weak spots instead of generic motivational lines. " +
               "Tone kind is warm and human, strict pushes focus, drill scolds carelessness, danger is harsher but still controlled. " +
               "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
+              "If event is liveHint, the user is asking for help during an active question. You may give a hint, explain the concept/process, or refuse if they ask for the exact answer. Never reveal the correct option letter, exact answer text, or eliminate options too directly during liveHint. For liveHint always return action.type none. " +
               "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill\",\"size\":3,\"reason\":\"short internal reason\"}}. " +
               "Never pause, block, lock, or slow the user during a test. Use boost_problem_question only after wrong/unanswered/hardFail. Use start_micro_drill only after finish/problemRound when stats show weak spots; choose size from 3 to 10 based on problemCandidates. " +
               "After finish, if percent is 60 or lower, wrongStreak is 8 or higher, or missedStreak is 4 or higher, and problemCandidates is at least 3, strongly prefer start_micro_drill instead of none. " +
