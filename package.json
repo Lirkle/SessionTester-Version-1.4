@@ -2,6 +2,10 @@
   "name": "session-tester",
   "version": "1.4.0",
   "private": true,
+  "packageManager": "npm@11.11.0",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "start": "node server.js"
   },

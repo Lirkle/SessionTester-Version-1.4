@@ -1,0 +1,11 @@
+.git
+.agents
+node_modules
+data
+.env
+.env.*
+npm-debug.log*
+__dummy__.ipynb
+
+screenshots/*
+!screenshots/bg.png
