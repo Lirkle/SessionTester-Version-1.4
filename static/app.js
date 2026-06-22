@@ -229,6 +229,8 @@ const translateBtn = document.getElementById("translateBtn");
 let currentUser = null;
 let leaderboardRowsCache = [];
 let microphoneAccessGranted = false;
+const liveCoachHintUsed = new Set();
+let liveCoachHintsLocked = false;
 
 async function apiJson(url, options = {}){
   const response = await fetch(url, {
@@ -1603,6 +1605,20 @@ let startTs = 0;
 let timerId = null;
 
 /** Focus mode controller */
+const GENERAL_CHAOS_VARIANTS = ["topbar", "sidebar", "cards", "panel", "tilt"];
+
+function setGeneralChaosMode(on, variant = ""){
+  document.body.classList.remove(
+    "general-chaos",
+    ...GENERAL_CHAOS_VARIANTS.map(name => `general-chaos--${name}`)
+  );
+  if (!on) return;
+  const nextVariant = GENERAL_CHAOS_VARIANTS.includes(variant)
+    ? variant
+    : GENERAL_CHAOS_VARIANTS[Math.floor(Math.random() * GENERAL_CHAOS_VARIANTS.length)];
+  document.body.classList.add("general-chaos", `general-chaos--${nextVariant}`);
+}
+
 function setRunning(isRunning){
   if (isRunning) {
     appEl.classList.add("is-running");
@@ -1665,6 +1681,16 @@ const PROBLEM_ATTEMPT_LIMIT = 12;
 const PROBLEM_REVIEW_VERSION = 1;
 const COACH_STATE_KEY = "quiz_general_coach_v1";
 const AI_ACTION_LOG_KEY = "quiz_ai_coach_actions_v1";
+const COACH_DEFAULT_AVATAR = "static/img/general-avatar.jpg";
+const COACH_AVATARS = {
+  kind: "static/img/general-avatars/kind.jpg",
+  strict: "static/img/general-avatars/strict.jpg",
+  drill: "static/img/general-avatars/drill.jpg",
+  danger: "static/img/general-avatars/danger.jpg",
+  offended: "static/img/general-avatars/offended.jpg",
+  thinking: "static/img/general-avatars/thinking.jpg",
+  command: "static/img/general-avatars/command.jpg"
+};
 const AI_COACH_UNAVAILABLE_MESSAGE =
   "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u0431\u0435\u0437 \u0441\u0432\u044f\u0437\u0438: OpenAI \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043b\u044e\u0447 \u0438\u043b\u0438 \u043b\u043e\u0433\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.";
 let aiCoachEnabled = true;
@@ -1698,6 +1724,7 @@ function defaultCoachState(){
     totalPraise: 0,
     lastMessage: "",
     lastEvent: "",
+    avatarMood: "kind",
     lastMessageAt: 0
   };
 }
@@ -1719,6 +1746,38 @@ function loadCoachState(){
 function saveCoachState(){
   if (!coachState) return;
   localStorage.setItem(COACH_STATE_KEY, JSON.stringify(coachState));
+}
+
+function getCoachAvatarMood(event = "", tone = coachState?.tone || "kind", actionType = ""){
+  if (actionType === "discipline_penalty") return "offended";
+  if (actionType === "start_micro_drill") return "command";
+  if (event === "liveHint") return "thinking";
+  if (event === "commandReply") return "command";
+  if (event === "problemRound" || event === "hardFail") return "drill";
+  if (tone === "danger") return "danger";
+  if (tone === "drill") return "drill";
+  if (tone === "strict") return "strict";
+  return "kind";
+}
+
+function setCoachAvatarMood(mood){
+  if (!coachState) coachState = loadCoachState();
+  const nextMood = COACH_AVATARS[mood] ? mood : "kind";
+  coachState.avatarMood = nextMood;
+  saveCoachState();
+  document.querySelectorAll("[data-coach-avatar]").forEach(img => setCoachAvatarImage(img, nextMood));
+}
+
+function setCoachAvatarImage(img, mood = coachState?.avatarMood || "kind"){
+  if (!img) return;
+  const src = COACH_AVATARS[mood] || COACH_DEFAULT_AVATAR;
+  img.dataset.coachAvatar = mood;
+  img.onerror = () => {
+    if (img.src.endsWith("/general-avatar.jpg")) return;
+    img.onerror = null;
+    img.src = COACH_DEFAULT_AVATAR;
+  };
+  img.src = src;
 }
 
 function isAiCoachEnabled(){
@@ -2036,7 +2095,7 @@ function ensureCoachPanel(){
   panel.className = "coach-panel";
   panel.innerHTML = `
     <div class="coach-panel__badge" aria-hidden="true">
-      <img src="static/img/general-avatar.jpg" alt="">
+      <img data-coach-avatar src="static/img/general-avatar.jpg" alt="">
     </div>
     <div class="coach-panel__body">
       <div class="coach-panel__top">
@@ -2087,6 +2146,7 @@ function renderCoachPanel(message){
   const title = panel.querySelector("#coachTitle");
   const tone = panel.querySelector("#coachTone");
   const msg = panel.querySelector("#coachMessage");
+  setCoachAvatarImage(panel.querySelector("[data-coach-avatar]"), coachState.avatarMood || getCoachAvatarMood("", coachState.tone));
   message = normalizeCoachDisplayMessage(message || coachState.lastMessage || "");
   if (message && message !== coachState.lastMessage) {
     coachState.lastMessage = message;
@@ -2145,7 +2205,7 @@ function ensureGeneralCommandDialog(){
     <div class="general-command__backdrop"></div>
     <section class="general-command__box" role="dialog" aria-modal="true" aria-labelledby="generalCommandTitle">
       <div class="general-command__portrait">
-        <img src="static/img/general-avatar.jpg" alt="">
+        <img data-coach-avatar src="static/img/general-avatar.jpg" alt="">
       </div>
       <div class="general-command__content">
         <p class="general-command__eyebrow">\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0437\u044f\u043b \u0443\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435</p>
@@ -2168,12 +2228,51 @@ function getSpeechRecognitionCtor(){
   return window.SpeechRecognition || window.webkitSpeechRecognition || null;
 }
 
+function setCoachHelpControlsLocked(card, locked, text = ""){
+  const box = card?.querySelector?.(".coach-help");
+  if (!box) return;
+  box.querySelector(".coach-help__input")?.toggleAttribute("disabled", locked);
+  box.querySelector(".coach-help__ask")?.toggleAttribute("disabled", locked);
+  box.querySelector(".coach-help__mic")?.toggleAttribute("disabled", locked);
+  box.classList.toggle("is-locked", locked);
+  const answer = box.querySelector(".coach-help__answer");
+  if (answer && text) answer.textContent = text;
+}
+
+function refreshCoachHelpLocks(){
+  const text = "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043e\u0431\u0438\u0434\u0435\u043b\u0441\u044f: \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0434\u043e \u043d\u043e\u0432\u043e\u0433\u043e \u0442\u0435\u0441\u0442\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u044b. \u041c\u0430\u0440\u0448 \u0434\u0443\u043c\u0430\u0442\u044c \u0441\u0430\u043c\u043e\u0441\u0442\u043e\u044f\u0442\u0435\u043b\u044c\u043d\u043e.";
+  document.querySelectorAll(".card").forEach(card => setCoachHelpControlsLocked(card, liveCoachHintsLocked, liveCoachHintsLocked ? text : ""));
+}
+
+function applyCoachDisciplinePenalty(action = {}, context = {}){
+  liveCoachHintsLocked = true;
+  setGeneralChaosMode(true, action.visual);
+  setCoachAvatarMood("offended");
+  const reason = String(action.reason || "").trim();
+  showAiActionToast(reason
+    ? `\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0443\u0440\u0435\u0437\u0430\u043b \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438: ${reason}`
+    : "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0443\u0440\u0435\u0437\u0430\u043b \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0437\u0430 \u043a\u0440\u0438\u0432\u043e\u0439 \u0431\u0430\u0437\u0430\u0440."
+  );
+  refreshCoachHelpLocks();
+  logAiCoachAction({ type: "discipline_penalty", event: context.event || "", reason });
+}
+
 function askLiveCoachHint(item, card, initialText = ""){
   if (!item || !card || !isAiCoachEnabled()) return;
+  if (liveCoachHintsLocked) {
+    setCoachHelpControlsLocked(card, true, "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043e\u0431\u0438\u0434\u0435\u043b\u0441\u044f: \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0434\u043e \u043d\u043e\u0432\u043e\u0433\u043e \u0442\u0435\u0441\u0442\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u044b.");
+    return;
+  }
+  const hintKey = String(item.id || item.bankN || "");
   const box = card.querySelector(".coach-help");
   const input = box?.querySelector(".coach-help__input");
   const answer = box?.querySelector(".coach-help__answer");
   const askBtn = box?.querySelector(".coach-help__ask");
+  const micBtn = box?.querySelector(".coach-help__mic");
+  if (hintKey && liveCoachHintUsed.has(hintKey)) {
+    if (answer) answer.textContent = "\u041b\u0438\u043c\u0438\u0442: \u0433\u0435\u043d\u0435\u0440\u0430\u043b \u0443\u0436\u0435 \u0434\u0430\u043b \u043e\u0434\u043d\u0443 \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0443 \u043f\u043e \u044d\u0442\u043e\u043c\u0443 \u0432\u043e\u043f\u0440\u043e\u0441\u0443.";
+    return;
+  }
   const text = String(initialText || input?.value || "").trim();
   if (!text) {
     if (answer) answer.textContent = "\u0421\u043d\u0430\u0447\u0430\u043b\u0430 \u0441\u043f\u0440\u043e\u0441\u0438 \u0447\u0442\u043e-\u043d\u0438\u0431\u0443\u0434\u044c. \u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043c\u044b\u0441\u043b\u0438 \u043d\u0435 \u0447\u0438\u0442\u0430\u0435\u0442.";
@@ -2182,6 +2281,8 @@ function askLiveCoachHint(item, card, initialText = ""){
 
   if (answer) answer.textContent = "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0434\u0443\u043c\u0430\u0435\u0442...";
   if (askBtn) askBtn.disabled = true;
+  if (micBtn) micBtn.disabled = true;
+  setCoachAvatarMood("thinking");
   apiJson("/api/coach-message", {
     method: "POST",
     body: JSON.stringify({
@@ -2203,10 +2304,16 @@ function askLiveCoachHint(item, card, initialText = ""){
   }).then(data => {
     const message = normalizeCoachDisplayMessage(data?.message || "");
     if (answer) answer.textContent = message || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u043e\u043c\u043e\u043b\u0447\u0430\u043b. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u0441\u0444\u043e\u0440\u043c\u0443\u043b\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0438\u043d\u0430\u0447\u0435.";
+    if (data?.action) applyAiCoachAction(data.action, { event: "liveHint", data: { item }, message });
     if (message) {
+      if (hintKey) liveCoachHintUsed.add(hintKey);
+      if (input) input.disabled = true;
+      if (askBtn) askBtn.disabled = true;
+      if (micBtn) micBtn.disabled = true;
       coachState.lastMessage = message;
       coachState.lastEvent = "liveHint";
       coachState.lastMessageAt = Date.now();
+      if (!liveCoachHintsLocked) coachState.avatarMood = getCoachAvatarMood("liveHint", coachState.tone);
       saveCoachState();
       renderCoachPanel(message);
     }
@@ -2214,7 +2321,9 @@ function askLiveCoachHint(item, card, initialText = ""){
     console.warn("[coach] live hint failed:", error);
     if (answer) answer.textContent = error?.message || "\u0421\u0432\u044f\u0437\u044c \u0441 \u0433\u0435\u043d\u0435\u0440\u0430\u043b\u043e\u043c \u0443\u043f\u0430\u043b\u0430.";
   }).finally(() => {
-    if (askBtn) askBtn.disabled = false;
+    const used = hintKey && liveCoachHintUsed.has(hintKey);
+    if (askBtn) askBtn.disabled = used;
+    if (micBtn) micBtn.disabled = used;
   });
 }
 
@@ -2234,6 +2343,8 @@ function addCoachHelp(card, item){
   const micBtn = help.querySelector(".coach-help__mic");
   const answer = help.querySelector(".coach-help__answer");
   const Recognition = getSpeechRecognitionCtor();
+  const hintKey = String(item?.id || item?.bankN || "");
+  const alreadyUsed = hintKey && liveCoachHintUsed.has(hintKey);
 
   askBtn?.addEventListener("click", () => askLiveCoachHint(item, card));
   input?.addEventListener("keydown", event => {
@@ -2242,7 +2353,14 @@ function addCoachHelp(card, item){
     askLiveCoachHint(item, card);
   });
 
-  if (!Recognition) {
+  if (liveCoachHintsLocked) {
+    setCoachHelpControlsLocked(card, true, "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043e\u0431\u0438\u0434\u0435\u043b\u0441\u044f: \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0434\u043e \u043d\u043e\u0432\u043e\u0433\u043e \u0442\u0435\u0441\u0442\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u044b.");
+  } else if (alreadyUsed) {
+    if (input) input.disabled = true;
+    if (askBtn) askBtn.disabled = true;
+    if (micBtn) micBtn.disabled = true;
+    if (answer) answer.textContent = "\u041b\u0438\u043c\u0438\u0442: \u043e\u0434\u043d\u0430 \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0430 \u043d\u0430 \u0432\u043e\u043f\u0440\u043e\u0441.";
+  } else if (!Recognition) {
     if (micBtn) {
       micBtn.disabled = true;
       micBtn.textContent = "\u041d\u0435\u0442 \u043c\u0438\u043a\u0440\u043e";
@@ -2315,6 +2433,8 @@ function showGeneralCommandDialog(action, context = {}){
   const Recognition = getSpeechRecognitionCtor();
 
   const type = String(action?.type || "none");
+  setCoachAvatarMood(getCoachAvatarMood(context.event || "", coachState?.tone || "strict", type));
+  setCoachAvatarImage(dialog.querySelector("[data-coach-avatar]"), coachState?.avatarMood || "command");
   const cleanReason = String(action?.reason || "").trim();
   if (title) title.textContent = getAiCoachActionLabel(type);
   if (message) message.textContent = context.message || coachState?.lastMessage || "";
@@ -2483,9 +2603,14 @@ async function applyAiCoachAction(action, context = {}){
 
   const reason = String(action.reason || "");
   const item = context.data?.item || TEST[curIdx] || null;
-  const allowed = new Set(["boost_problem_question", "start_micro_drill"]);
+  const allowed = new Set(["boost_problem_question", "start_micro_drill", "discipline_penalty"]);
   if (!allowed.has(type)) {
     logAiCoachAction({ type, skipped: true, reason: "unknown_action" });
+    return;
+  }
+
+  if (type === "discipline_penalty") {
+    applyCoachDisciplinePenalty(action, context);
     return;
   }
 
@@ -2576,6 +2701,9 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
         reason: "severe weak-spot review"
       };
     }
+    coachState.avatarMood = getCoachAvatarMood(event, coachState.tone, action?.type || "");
+    saveCoachState();
+    renderCoachPanel(message);
     applyAiCoachAction(action, { event, tone, data, localMessage, message });
   } catch (error) {
     showAiCoachUnavailable("request_failed", error, localMessage);
@@ -2617,6 +2745,7 @@ function coachReact(event, data = {}){
   }
 
   coachState.tone = getCoachTone();
+  coachState.avatarMood = getCoachAvatarMood(event, coachState.tone);
   const message = getCoachMessage(event, coachState.tone, data);
   coachState.lastMessage = message;
   coachState.lastEvent = event;
@@ -2756,12 +2885,16 @@ function buildTestItem(source, idx){
 
 function buildTest(){
   answers.clear();
+  liveCoachHintUsed.clear();
+  liveCoachHintsLocked = false;
   const picked = shuffle([...ALL]).slice(0, Math.min(TEST_SIZE, ALL.length));
   TEST = picked.map(buildTestItem);
 }
 
 function buildTestHard(){
   answers.clear();
+  liveCoachHintUsed.clear();
+  liveCoachHintsLocked = false;
 
   const hardItems = ALL.filter(x => hasHardQuestion(x.n));
   if (hardItems.length === 0){
@@ -2777,6 +2910,8 @@ function buildTestHard(){
 
 function buildProblemReviewTest(review){
   answers.clear();
+  liveCoachHintUsed.clear();
+  liveCoachHintsLocked = false;
   if (!review || !Array.isArray(review.questionIds)) return false;
 
   const pendingIds = review.questionIds
@@ -3775,6 +3910,7 @@ if (!wasProblemReviewMode){
   restartBtn.disabled = false;
   if (abortBtn) abortBtn.disabled = true;
   setRunning(false);
+  setGeneralChaosMode(false);
   appEl.classList.add("has-output");
   
   // РЎРѕС…СЂР°РЅСЏРµРј РѕР±РЅРѕРІР»РµРЅРЅС‹Рµ СЃР»РѕР¶РЅС‹Рµ РІРѕРїСЂРѕСЃС‹ Рё СЃС‚Р°С‚РёСЃС‚РёРєСѓ
@@ -4244,6 +4380,7 @@ if (translateBtn){
 let lastStartWasHardOnly = false;
 
 function startQuiz({ hardOnly = false } = {}){
+  setGeneralChaosMode(false);
   const forcedProblemBank = getForcedProblemBank();
   let built = false;
 
@@ -4338,6 +4475,7 @@ function abortTest(){
   updateHardButton();
 
   setRunning(false);
+  setGeneralChaosMode(false);
 }
 
 if (abortBtn){

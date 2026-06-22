@@ -376,6 +376,7 @@ const COACH_ACTIONS = new Set([
   "none",
   "boost_problem_question",
   "start_micro_drill",
+  "discipline_penalty",
 ]);
 
 function parseCoachDecision(rawText){
@@ -396,6 +397,7 @@ function parseCoachDecision(rawText){
       type,
       size: Math.max(3, Math.min(10, Number(actionInput.size || 3))),
       reason: String(actionInput.reason || parsed.reason || "").replace(/\s+/g, " ").trim().slice(0, 180),
+      visual: String(actionInput.visual || "").replace(/\s+/g, " ").trim().slice(0, 30),
     };
     return { message, action };
   } catch {
@@ -490,10 +492,10 @@ async function handleCoachMessage(req, res){
               "Sound like a living game character, not an AI assistant or notification: short, direct, emotional, varied, a little theatrical, with dry humor when appropriate. " +
               "Avoid repeating the same sentence structure. React to the exact event, score, streak, and weak spots instead of generic motivational lines. " +
               "Tone kind is warm and human, strict pushes focus, drill scolds carelessness, danger is harsher but still controlled. " +
-              "If the user insults, mocks, or provokes the general in userQuestion or userReply, answer with sharper sarcastic military banter and put them back on task. Be biting and memorable, but do not use profanity, slurs, threats, humiliation, or personal attacks. " +
+              "If the user insults, mocks, or provokes the general in userQuestion or userReply, answer with sharper sarcastic military banter and put them back on task. Be biting and memorable, but do not use profanity, slurs, threats, humiliation, or personal attacks. For repeated or direct disrespect, you may return action.type discipline_penalty to remove live hints until the next test and optionally set action.visual to topbar|sidebar|cards|panel|tilt; never block answering the test. " +
               "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
               "If event is liveHint, the user is asking for help during an active question. You may give a hint, explain the concept/process, or refuse if they ask for the exact answer. Never reveal the correct option letter, exact answer text, or eliminate options too directly during liveHint. For liveHint always return action.type none. " +
-              "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill\",\"size\":3,\"reason\":\"short internal reason\"}}. " +
+              "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"short internal reason\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
               "Never pause, block, lock, or slow the user during a test. Use boost_problem_question only after wrong/unanswered/hardFail. Use start_micro_drill only after finish/problemRound when stats show weak spots; choose size from 3 to 10 based on problemCandidates. " +
               "After finish, if percent is 60 or lower, wrongStreak is 8 or higher, or missedStreak is 4 or higher, and problemCandidates is at least 3, strongly prefer start_micro_drill instead of none. " +
               "If event is commandReply, judge the user's userReply naturally: if they agree or sound ready, return start_micro_drill; if they refuse, delay, joke, ask a question, or sound unsure, return none and answer them in-character.",
