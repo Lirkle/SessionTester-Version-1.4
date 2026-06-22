@@ -9,6 +9,103 @@ function norm(s){
 function stripSlashes(s){
   return String(s).replace(/^\/+|\/+$/g, "");
 }
+
+const mojibakeByteMap = (() => {
+  if (typeof TextDecoder === "undefined") return null;
+  try {
+    const bytes = Uint8Array.from({ length: 128 }, (_, i) => i + 128);
+    const decoded = new TextDecoder("windows-1251").decode(bytes);
+    const map = new Map();
+    for (let i = 0; i < decoded.length; i++) map.set(decoded[i], i + 128);
+    return map;
+  } catch {
+    return null;
+  }
+})();
+
+function looksLikeCp1251Mojibake(text){
+  return /(?:Р[^\sA-Za-zА-Яа-я]|С[^\sA-Za-zА-Яа-я]|вЂ|В·|В |Рќ|Р°|Рµ|Рё|СЃ|С‚|СЏ|С‡|С€|С‹|СЊ)/.test(String(text || ""));
+}
+
+function repairMojibakeText(text){
+  const source = String(text ?? "");
+  if (!mojibakeByteMap || !looksLikeCp1251Mojibake(source)) return source;
+  let current = source;
+
+  for (let pass = 0; pass < 3; pass++){
+    if (!looksLikeCp1251Mojibake(current)) break;
+    const repaired = repairMojibakePass(current);
+    if (repaired === current) break;
+    current = repaired;
+  }
+
+  return current;
+}
+
+function repairMojibakePass(source){
+  const bytes = [];
+  for (const char of source){
+    const code = char.codePointAt(0);
+    if (code <= 0x7f) {
+      bytes.push(code);
+    } else if (mojibakeByteMap.has(char)) {
+      bytes.push(mojibakeByteMap.get(char));
+    } else {
+      return source;
+    }
+  }
+
+  try {
+    const repaired = new TextDecoder("utf-8", { fatal: false }).decode(Uint8Array.from(bytes));
+    return /[А-Яа-яЁё]/.test(repaired) ? repaired : source;
+  } catch {
+    return source;
+  }
+}
+
+function repairElementMojibake(root){
+  const attrNames = ["title", "placeholder", "aria-label", "value"];
+  const fixNode = node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const fixed = repairMojibakeText(node.nodeValue);
+      if (fixed !== node.nodeValue) node.nodeValue = fixed;
+      return;
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return;
+    for (const attr of attrNames){
+      if (!node.hasAttribute(attr)) continue;
+      const value = node.getAttribute(attr);
+      const fixed = repairMojibakeText(value);
+      if (fixed !== value) node.setAttribute(attr, fixed);
+    }
+  };
+
+  fixNode(root);
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  while (walker.nextNode()) fixNode(walker.currentNode);
+}
+
+function installMojibakeRepair(){
+  if (!document.body || !mojibakeByteMap) return;
+  repairElementMojibake(document.body);
+  const observer = new MutationObserver(mutations => {
+    for (const mutation of mutations){
+      mutation.addedNodes.forEach(node => repairElementMojibake(node));
+      if (mutation.type === "characterData") repairElementMojibake(mutation.target);
+      if (mutation.type === "attributes") repairElementMojibake(mutation.target);
+    }
+  });
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ["title", "placeholder", "aria-label", "value"],
+  });
+}
+
+installMojibakeRepair();
+
 function isManagePyAnswer(expected){
   const e = norm(expected);
   return e.startsWith("python manage.py ");
