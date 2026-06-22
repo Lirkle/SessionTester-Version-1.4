@@ -128,6 +128,24 @@ const timerText = document.getElementById("timerText");
 const appEl = document.querySelector(".app");
 const translateBtn = document.getElementById("translateBtn");
 
+let currentUser = null;
+let leaderboardRowsCache = [];
+
+async function apiJson(url, options = {}){
+  const response = await fetch(url, {
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+    ...options,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error || `HTTP ${response.status}`);
+    error.data = data;
+    throw error;
+  }
+  return data;
+}
+
 const TRANSLATE_DEFAULT_RESET_KEY = "quiz_translate_default_en_v1";
 if (localStorage.getItem(TRANSLATE_DEFAULT_RESET_KEY) !== "1"){
   localStorage.setItem("quiz_translate_ru", "0");
@@ -1122,6 +1140,211 @@ function updateTranslationUI(){
     : "Включить русский вариант вопросов и ответов.";
 }
 
+function ensureAuthUI(){
+  let overlay = document.getElementById("authGate");
+  if (overlay) return overlay;
+
+  overlay = document.createElement("div");
+  overlay.id = "authGate";
+  overlay.className = "auth-gate";
+  overlay.innerHTML = `
+    <section class="auth-card">
+      <div>
+        <p class="eyebrow">SessionTester</p>
+        <h2>Вход обязателен</h2>
+        <p class="muted small">Зарегистрируйся или войди, чтобы результаты шли в лидерборд.</p>
+      </div>
+      <div class="auth-tabs">
+        <button type="button" class="is-active" data-auth-mode="login">Вход</button>
+        <button type="button" data-auth-mode="register">Регистрация</button>
+      </div>
+      <form id="authForm" class="auth-form">
+        <label>
+          <span>Логин</span>
+          <input id="authUsername" autocomplete="username" required minlength="3" maxlength="20" placeholder="user_01">
+        </label>
+        <label>
+          <span>Пароль</span>
+          <input id="authPassword" type="password" autocomplete="current-password" required minlength="4" placeholder="минимум 4 символа">
+        </label>
+        <button id="authSubmit" type="submit">Войти</button>
+        <div id="authError" class="auth-error" role="alert"></div>
+      </form>
+      <div class="auth-rules">Логин: 3-20 символов, латиница/цифры/_/-.</div>
+    </section>
+  `;
+  document.body.appendChild(overlay);
+
+  let mode = "login";
+  const form = overlay.querySelector("#authForm");
+  const submit = overlay.querySelector("#authSubmit");
+  const errorBox = overlay.querySelector("#authError");
+  const password = overlay.querySelector("#authPassword");
+
+  overlay.querySelectorAll("[data-auth-mode]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      mode = btn.dataset.authMode;
+      overlay.querySelectorAll("[data-auth-mode]").forEach(x => x.classList.toggle("is-active", x === btn));
+      submit.textContent = mode === "login" ? "Войти" : "Создать аккаунт";
+      password.autocomplete = mode === "login" ? "current-password" : "new-password";
+      errorBox.textContent = "";
+    });
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    errorBox.textContent = "";
+    submit.disabled = true;
+    try {
+      const username = overlay.querySelector("#authUsername").value;
+      const pass = password.value;
+      const data = await apiJson(mode === "login" ? "/api/login" : "/api/register", {
+        method: "POST",
+        body: JSON.stringify({ username, password: pass }),
+      });
+      applyAuthState(data);
+      overlay.classList.remove("is-visible");
+    } catch (error) {
+      const map = {
+        username_invalid: "Логин: 3-20 символов, латиница/цифры/_/-.",
+        password_invalid: "Пароль должен быть от 4 до 80 символов.",
+        username_taken: "Такой логин уже занят.",
+        invalid_login: "Неверный логин или пароль.",
+      };
+      errorBox.textContent = map[error.message] || "Не получилось войти. Проверь данные.";
+    } finally {
+      submit.disabled = false;
+    }
+  });
+
+  return overlay;
+}
+
+function applyAuthState(data){
+  currentUser = data?.user || null;
+  leaderboardRowsCache = Array.isArray(data?.leaderboard) ? data.leaderboard : leaderboardRowsCache;
+  renderUserBadge();
+  renderLeaderboard();
+}
+
+function renderUserBadge(){
+  let badge = document.getElementById("userBadge");
+  if (!badge){
+    badge = document.createElement("button");
+    badge.id = "userBadge";
+    badge.type = "button";
+    badge.className = "translate-btn user-badge";
+    document.querySelector(".topstats")?.appendChild(badge);
+    badge.addEventListener("click", showLeaderboard);
+  }
+  badge.textContent = currentUser ? `USER: ${currentUser.username}` : "USER: ?";
+}
+
+function ensureLeaderboardUI(){
+  let modal = document.getElementById("leaderboardModal");
+  if (modal) return modal;
+
+  modal = document.createElement("div");
+  modal.id = "leaderboardModal";
+  modal.className = "leaderboard-modal";
+  modal.innerHTML = `
+    <div class="leaderboard-modal__overlay"></div>
+    <section class="leaderboard-modal__content">
+      <div class="leaderboard-modal__head">
+        <h2>Лидерборд</h2>
+        <button id="leaderboardClose" type="button" class="analytics-modal__close">×</button>
+      </div>
+      <div id="leaderboardUser" class="leaderboard-user"></div>
+      <div id="leaderboardRows" class="leaderboard-rows"></div>
+      <button id="logoutBtn" type="button" class="secondary" style="width:100%;margin-top:12px;">Выйти</button>
+    </section>
+  `;
+  document.body.appendChild(modal);
+  modal.querySelector(".leaderboard-modal__overlay").addEventListener("click", hideLeaderboard);
+  modal.querySelector("#leaderboardClose").addEventListener("click", hideLeaderboard);
+  modal.querySelector("#logoutBtn").addEventListener("click", logoutUser);
+  return modal;
+}
+
+function renderLeaderboard(){
+  const modal = ensureLeaderboardUI();
+  const userBox = modal.querySelector("#leaderboardUser");
+  const rowsBox = modal.querySelector("#leaderboardRows");
+  const userStats = currentUser?.stats || {};
+
+  if (userBox){
+    userBox.innerHTML = currentUser
+      ? `<strong>${escapeHtml(currentUser.username)}</strong><span>EXP: ${Number(userStats.exp || 0)} · Тестов: ${Number(userStats.testsCompleted || 0)} · Best: ${Number(userStats.bestPercent || 0)}%</span>`
+      : "";
+  }
+
+  if (!rowsBox) return;
+  if (!leaderboardRowsCache.length){
+    rowsBox.innerHTML = `<div class="muted small">Пока пусто. Пройди тест первым.</div>`;
+    return;
+  }
+
+  rowsBox.innerHTML = leaderboardRowsCache.map(row => `
+    <div class="leaderboard-row ${currentUser?.username === row.username ? "is-me" : ""}">
+      <span>${row.rank}</span>
+      <strong>${escapeHtml(row.username)}</strong>
+      <em>${row.exp} EXP</em>
+      <small>${row.testsCompleted} тестов · best ${row.bestPercent}%</small>
+    </div>
+  `).join("");
+}
+
+async function showLeaderboard(){
+  try {
+    const data = await apiJson("/api/leaderboard");
+    leaderboardRowsCache = Array.isArray(data.leaderboard) ? data.leaderboard : [];
+  } catch {}
+  renderLeaderboard();
+  ensureLeaderboardUI().classList.add("is-visible");
+}
+
+function hideLeaderboard(){
+  ensureLeaderboardUI().classList.remove("is-visible");
+}
+
+async function logoutUser(){
+  try {
+    await apiJson("/api/logout", { method: "POST", body: "{}" });
+  } catch {}
+  currentUser = null;
+  leaderboardRowsCache = [];
+  hideLeaderboard();
+  ensureAuthUI().classList.add("is-visible");
+}
+
+async function requireAuth(){
+  ensureAuthUI();
+  ensureLeaderboardUI();
+  try {
+    const data = await apiJson("/api/me");
+    applyAuthState(data);
+    ensureAuthUI().classList.remove("is-visible");
+  } catch {
+    ensureAuthUI().classList.add("is-visible");
+  }
+}
+
+async function submitLeaderboardScore(payload){
+  if (!currentUser) return;
+  try {
+    const data = await apiJson("/api/submit-score", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    applyAuthState(data);
+  } catch (error) {
+    if (error.message === "not_authenticated") {
+      currentUser = null;
+      ensureAuthUI().classList.add("is-visible");
+    }
+  }
+}
+
 function setStatusPill(text){
   if (!statusPill) return;
   let dot = statusPill.querySelector(".dot");
@@ -1164,7 +1387,7 @@ function updateStartDashboard(){
 
   document.querySelectorAll("[data-bank-tile]").forEach(tile => {
     tile.classList.toggle("is-active", tile.dataset.bankTile === currentBankKey);
-    tile.classList.toggle("is-locked", Boolean(forcedProblemBank) && tile.dataset.bankTile !== forcedProblemBank);
+    tile.classList.remove("is-locked");
   });
 
   if (dashPreview){
@@ -1262,6 +1485,8 @@ const PROBLEM_REVIEW_SIZE = 10;
 const PROBLEM_CLEAR_STREAK = 2;
 const PROBLEM_ATTEMPT_LIMIT = 12;
 const PROBLEM_REVIEW_VERSION = 1;
+const COACH_STATE_KEY = "quiz_general_coach_v1";
+let coachState = null;
 
 
 // === HARD AUTO (ошибка -> добавить, 2 подряд верно -> снять) ===
@@ -1281,6 +1506,313 @@ function readJson(key, fallback){
     return fallback;
   }
 }
+
+function defaultCoachState(){
+  return {
+    tone: "kind",
+    wrongStreak: 0,
+    missedStreak: 0,
+    totalWarnings: 0,
+    totalPraise: 0,
+    lastMessage: "",
+    lastEvent: "",
+    lastMessageAt: 0
+  };
+}
+
+function loadCoachState(){
+  const saved = readJson(COACH_STATE_KEY, null);
+  return Object.assign(defaultCoachState(), saved && typeof saved === "object" ? saved : {});
+}
+
+function saveCoachState(){
+  if (!coachState) return;
+  localStorage.setItem(COACH_STATE_KEY, JSON.stringify(coachState));
+}
+
+function getCoachTone(){
+  if (!coachState) coachState = loadCoachState();
+  if (coachState.missedStreak >= 3 || coachState.wrongStreak >= 5) return "danger";
+  if (coachState.missedStreak >= 2 || coachState.wrongStreak >= 3 || isProblemReviewMode) return "drill";
+  if (coachState.wrongStreak >= 1 || coachState.missedStreak >= 1) return "strict";
+  return "kind";
+}
+
+function coachPick(list){
+  if (!Array.isArray(list) || !list.length) return "";
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function getCoachMessage(event, tone, data = {}){
+  const pending = Number(data.pending || 0);
+  const wrong = Number(data.wrong || 0);
+  const percent = Number(data.percent || 0);
+
+  const messages = {
+    start: {
+      kind: [
+        "На связи генерал. Спокойно читаем вопрос, отсекаем мусор, берём правильный ответ.",
+        "Работаем ровно. Ошибка не страшна, если после неё есть разбор."
+      ],
+      strict: [
+        "Темп держим, но внимательность подтянуть. Не угадывай, доказывай ответ.",
+        "Соберись. Сначала смысл вопроса, потом варианты."
+      ],
+      drill: [
+        "Курсант, режим тренировки включён. Бегства нет, есть вопрос и правильный ответ.",
+        "Сэр, да сэр. Сейчас не кликаем на авось, сейчас закрываем тему."
+      ],
+      danger: [
+        "Красная зона. Любая попытка проскочить будет возвращать тебя обратно к вопросу.",
+        "Так, стройся. Пока не начнёшь думать, сайт тебя не отпустит."
+      ]
+    },
+    unanswered: {
+      strict: [
+        "Пустой ответ? Нет, так не пойдёт. Вернись к вопросу и дай вариант.",
+        "Курсант, вопрос не исчезнет, если сделать вид, что его нет."
+      ],
+      drill: [
+        "Не отвечать запрещено. Читаешь формулировку, убираешь два слабых варианта, выбираешь.",
+        "Сэр, да сэр: пустые ответы остаются на плацу до исправления."
+      ],
+      danger: [
+        "Это уже не пропуск, это побег. Развернуться и ответить.",
+        "Отставить уклонение. Пока вопрос пустой, зачёта не будет."
+      ]
+    },
+    wrong: {
+      strict: [
+        "Ошибка принята. Теперь без паники: найди слово в вопросе, которое решает смысл.",
+        "Неверно. Убери варианты, которые говорят о другом процессе, и попробуй связать термин с определением."
+      ],
+      drill: [
+        "Курсант, этот промах заносим в журнал. Следующий подход должен быть осознанным.",
+        "Сэр, да сэр. Неправильный ответ не трагедия, но второй такой же уже дисциплинарка."
+      ],
+      danger: [
+        "Нет. Это не обучение, если ты просто тыкаешь. Остановись и разбери формулировку.",
+        "Красная зона. Пока не поймёшь, почему ответ верный, вопрос будет возвращаться."
+      ]
+    },
+    correct: {
+      kind: [
+        "Вот так. Спокойно, чисто, по делу.",
+        "Принято. Ответ уверенный, двигаемся дальше."
+      ],
+      strict: [
+        "Хорошо. Видишь, когда читаешь внимательно, всё становится проще.",
+        "Верно. Держи этот темп, курсант."
+      ],
+      drill: [
+        "Сэр, да сэр. Один шаг к свободе сделан.",
+        "Есть попадание. Закрепляем, не расслабляемся."
+      ],
+      danger: [
+        "Наконец-то порядок. Продолжай так, и выйдешь из красной зоны.",
+        "Вот это уже похоже на работу. Ещё правильные ответы, и режим смягчится."
+      ]
+    },
+    finish: {
+      kind: [
+        `Сессия закрыта. Результат ${percent}%. Ошибок: ${wrong}. Есть материал для прокачки.`,
+        `Финиш. ${percent}% — нормальная база, теперь добиваем слабые места.`
+      ],
+      strict: [
+        `Финиш: ${percent}%. Ошибок ${wrong}. Разбор обязателен, угадайка не засчитывается.`,
+        `Сессия закончена. Ошибки записаны, дисциплина начинается с повторения.`
+      ],
+      drill: [
+        `Результат ${percent}%. Проблемные вопросы отправятся на закрепление. Сэр, да сэр.`,
+        `Ошибок ${wrong}. Генерал недоволен, но план понятен: повторить и закрыть.`
+      ],
+      danger: [
+        `Красная зона: ${percent}%. Тебя спасёт только закрепление без побегов.`,
+        `Слишком много провалов. Вопросы будут возвращаться, пока не станут твоими.`
+      ]
+    },
+    problemStart: {
+      drill: [
+        `Проблемная десятка собрана. Осталось закрыть: ${pending}. Два правильных подряд по каждому.`,
+        `Начинается закрепление. ${pending} вопросов, побег отменён.`
+      ],
+      danger: [
+        `Генерал берёт управление. ${pending} проблемных вопросов, и каждый ждёт два правильных подряд.`,
+        `Вот она, зона зачистки. ${pending} целей. Ошибка сбрасывает серию.`
+      ]
+    },
+    problemRound: {
+      drill: [
+        `Раунд не закрыт. Осталось: ${pending}. Ошибся — вопрос вернулся в строй.`,
+        `Продолжаем. ${pending} вопросов ещё сопротивляются.`
+      ],
+      danger: [
+        `Нет, на этом не выходим. Осталось ${pending}, работаем до закрепления.`,
+        `Попытка принята, но не зачтена полностью. ${pending} вопросов ещё держат оборону.`
+      ]
+    },
+    problemCleared: {
+      kind: [
+        "Проблемная десятка закрыта. Вот это уже дисциплина.",
+        "Закрепление пройдено. Генерал доволен, можешь идти дальше."
+      ],
+      strict: [
+        "Десятка закрыта. Запомни ощущение: два правильных подряд решают.",
+        "Зачёт. Проблемные вопросы сняты с контроля."
+      ]
+    },
+    hardFail: {
+      drill: [
+        "Hardmode провален. Это было жёстко, но честно.",
+        "Один шанс был потрачен. В следующий раз сначала думай, потом жми."
+      ],
+      danger: [
+        "Провал. Генерал видел этот клик. Повторить, разобрать, вернуться.",
+        "Hardmode не про удачу. Возвращайся после разбора."
+      ]
+    }
+  };
+
+  const byEvent = messages[event] || messages.start;
+  return coachPick(byEvent[tone] || byEvent.drill || byEvent.strict || byEvent.kind);
+}
+
+function ensureCoachPanel(){
+  let panel = document.getElementById("coachPanel");
+  if (panel) return panel;
+
+  panel = document.createElement("section");
+  panel.id = "coachPanel";
+  panel.className = "coach-panel";
+  panel.innerHTML = `
+    <div class="coach-panel__badge">GEN</div>
+    <div class="coach-panel__body">
+      <div class="coach-panel__top">
+        <strong id="coachTitle">General mode</strong>
+        <span id="coachTone">kind</span>
+      </div>
+      <p id="coachMessage">На связи генерал. Работаем спокойно.</p>
+    </div>
+  `;
+
+  const hero = document.querySelector(".hero");
+  if (hero && hero.parentNode) {
+    hero.insertAdjacentElement("afterend", panel);
+  } else {
+    document.querySelector(".main")?.prepend(panel);
+  }
+  return panel;
+}
+
+function renderCoachPanel(message){
+  if (!coachState) coachState = loadCoachState();
+  const panel = ensureCoachPanel();
+  const title = panel.querySelector("#coachTitle");
+  const tone = panel.querySelector("#coachTone");
+  const msg = panel.querySelector("#coachMessage");
+
+  panel.dataset.tone = coachState.tone;
+  if (title) title.textContent = coachState.tone === "kind" ? "General mode" : "Drill General";
+  if (tone) tone.textContent = coachState.tone;
+  if (msg) msg.textContent = message || coachState.lastMessage || "На связи генерал. Работаем спокойно.";
+
+  panel.classList.remove("is-pulsing");
+  void panel.offsetWidth;
+  panel.classList.add("is-pulsing");
+}
+
+function getAnswerTextForCoach(item, user){
+  if (!item) return "";
+  if (mode === "mcq"){
+    return typeof user === "number" && item.options?.[user] ? item.options[user] : "";
+  }
+  return String(user ?? "");
+}
+
+async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
+  if (window.location.protocol === "file:") return;
+
+  try {
+    const item = data.item || null;
+    const response = await fetch("/api/coach-message", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event,
+        tone,
+        localMessage,
+        question: item?.q || data.question || "",
+        userAnswer: data.userAnswer || getAnswerTextForCoach(item, data.user),
+        correctAnswer: data.correctAnswer || (event === "finish" || event === "problemCleared" ? item?.correctText || "" : ""),
+        problemMode: isProblemReviewMode,
+        stats: {
+          wrongStreak: coachState?.wrongStreak || 0,
+          missedStreak: coachState?.missedStreak || 0,
+          pending: data.pending || 0,
+          wrong: data.wrong || 0,
+          percent: data.percent || 0,
+        },
+      }),
+    });
+
+    if (!response.ok) return;
+    const json = await response.json();
+    const message = String(json.message || "").trim();
+    if (!message || !coachState || coachState.lastMessage !== localMessage) return;
+
+    coachState.lastMessage = message;
+    coachState.lastMessageAt = Date.now();
+    saveCoachState();
+    renderCoachPanel(message);
+  } catch {
+    // Local coach line remains as the fallback.
+  }
+}
+
+function coachReact(event, data = {}){
+  if (!coachState) coachState = loadCoachState();
+
+  if (event === "correct"){
+    coachState.totalPraise++;
+    coachState.wrongStreak = Math.max(0, coachState.wrongStreak - 1);
+    coachState.missedStreak = Math.max(0, coachState.missedStreak - 1);
+  } else if (event === "unanswered"){
+    coachState.totalWarnings++;
+    coachState.wrongStreak++;
+    coachState.missedStreak++;
+  } else if (event === "wrong" || event === "hardFail"){
+    coachState.totalWarnings++;
+    coachState.wrongStreak++;
+    if (data.empty) coachState.missedStreak++;
+  } else if (event === "finish"){
+    const wrongCount = Number(data.wrong || 0);
+    if (wrongCount > 0){
+      coachState.totalWarnings += wrongCount;
+      coachState.wrongStreak += Math.min(2, wrongCount);
+    } else {
+      coachState.totalPraise++;
+      coachState.wrongStreak = Math.max(0, coachState.wrongStreak - 1);
+      coachState.missedStreak = Math.max(0, coachState.missedStreak - 1);
+    }
+  } else if (event === "problemRound"){
+    coachState.totalWarnings++;
+    coachState.wrongStreak += 2;
+  } else if (event === "problemCleared"){
+    coachState.wrongStreak = 0;
+    coachState.missedStreak = 0;
+  }
+
+  coachState.tone = getCoachTone();
+  const message = getCoachMessage(event, coachState.tone, data);
+  coachState.lastMessage = message;
+  coachState.lastEvent = event;
+  coachState.lastMessageAt = Date.now();
+  saveCoachState();
+  renderCoachPanel(message);
+  requestAiCoachMessage(event, coachState.tone, data, message);
+}
+
+coachState = loadCoachState();
 
 function getHardKey(bankKey = currentBankKey){
   return `hard_questions_${bankKey}_v2`;
@@ -1330,7 +1862,7 @@ function deleteHardQuestion(bankN){
 
 function updateHardButton(){
   if (!hardBtn) return;
-  const forcedProblemBank = getForcedProblemBank();
+  const forcedProblemBank = getForcedProblemBank(currentBankKey);
   const disabled = Boolean(forcedProblemBank) || (hardQuestions.size === 0 || startBtn.disabled);
   hardBtn.disabled = disabled;
   if (quickHardBtn) quickHardBtn.disabled = disabled;
@@ -1710,15 +2242,11 @@ function ensureProblemReview(bankKey){
   return review;
 }
 
-function getForcedProblemBank(){
-  const bankKeys = Object.keys(window.QUIZ_BANKS || {});
-  for (const key of bankKeys){
-    const review = loadProblemReview(key);
-    if (review && review.active && review.questionIds.length) return resolveBankKey(key);
-  }
-  for (const key of bankKeys){
-    if (getProblemCandidates(key).length >= PROBLEM_REVIEW_SIZE) return resolveBankKey(key);
-  }
+function getForcedProblemBank(bankKey = currentBankKey){
+  const key = resolveBankKey(bankKey);
+  const review = loadProblemReview(key);
+  if (review && review.active && review.questionIds.length) return key;
+  if (getProblemCandidates(key).length >= PROBLEM_REVIEW_SIZE) return key;
   return null;
 }
 
@@ -2131,6 +2659,7 @@ function finish(){
   stopTimer();
   const elapsedMs = getElapsedMs();
   const avgMs = TEST.length ? (elapsedMs / TEST.length) : 0;
+  const wasProblemReviewMode = isProblemReviewMode;
 
   let correct = 0;
   const wrong = [];
@@ -2220,8 +2749,10 @@ if (isProblemReviewMode){
   saveHardStats();
 
   if (!reviewRound.done){
+    coachReact("problemRound", { pending: reviewRound.pending.length, wrong: wrong.length });
     if (continueProblemReviewRound(reviewRound)) return;
   } else {
+    coachReact("problemCleared");
     isProblemReviewMode = false;
     activeProblemReviewBank = null;
     updateStartDashboard();
@@ -2258,6 +2789,13 @@ if (hardMode){
   updateHardmodeRecords(bankKey, hardmodeStreakQuestions, percent, TEST.length, elapsedMs, false);
 }
 
+if (!wasProblemReviewMode){
+  coachReact(wrong.length ? "finish" : "correct", {
+    wrong: wrong.length,
+    percent,
+    pending: getProblemReviewStatus(bankKey).pending
+  });
+}
 
   const parts = [];
   // Add tabindex="-1" to result title for accessibility + focus
@@ -2473,6 +3011,7 @@ function showHardModeFail(){
   stopQuestionTimer();
   stopHardmodeMusic();
   stopTimer();
+  coachReact("hardFail");
   
   // Сохраняем рекорды hardmode перед завершением
   const bankKey = resolveBankKey(localStorage.getItem("quiz_bank") || DEFAULT_BANK_KEY);
@@ -2674,20 +3213,12 @@ function setBank(name) {
 }
 
 const saved = resolveBankKey(localStorage.getItem("quiz_bank") || DEFAULT_BANK_KEY);
-const initialForcedProblemBank = getForcedProblemBank();
-const initialBank = initialForcedProblemBank || saved;
+const initialBank = saved;
 bankSelect.value = initialBank;
 setBank(initialBank);
+renderCoachPanel(coachState?.lastMessage || "?? ????? ???????. ???????? ????????.");
 
 bankSelect.addEventListener("change", () => {
-  const forcedProblemBank = getForcedProblemBank();
-  if (forcedProblemBank && bankSelect.value !== forcedProblemBank){
-    bankSelect.value = forcedProblemBank;
-    setBank(forcedProblemBank);
-    setStatusPill("Закрепление обязательно");
-    setMetaText("Сначала закрой проблемные вопросы: обычные тесты пока заблокированы.");
-    return;
-  }
   setBank(bankSelect.value);
 });
 
@@ -2695,14 +3226,6 @@ document.querySelectorAll("[data-bank-tile]").forEach(tile => {
   tile.addEventListener("click", () => {
     const key = tile.dataset.bankTile;
     if (!key || bankSelect.value === key) return;
-    const forcedProblemBank = getForcedProblemBank();
-    if (forcedProblemBank && key !== forcedProblemBank){
-      bankSelect.value = forcedProblemBank;
-      setBank(forcedProblemBank);
-      setStatusPill("Закрепление обязательно");
-      setMetaText("Сначала закрой проблемные вопросы: обычные тесты пока заблокированы.");
-      return;
-    }
     bankSelect.value = key;
     setBank(key);
   });
@@ -2779,6 +3302,9 @@ function startQuiz({ hardOnly = false } = {}){
   setRunning(true);
   renderTest();
   startTimer();
+  coachReact(isProblemReviewMode ? "problemStart" : "start", {
+    pending: getProblemReviewStatus(activeProblemReviewBank || currentBankKey).pending
+  });
   startBtn.disabled = true;
   learnBtn.disabled = hardMode;  // недоступна в hardmode
   restartBtn.disabled = true;
@@ -2848,6 +3374,7 @@ if (abortBtn){
 finishBtn.addEventListener("click", () => {
   const idx = findFirstUnanswered();
   if (idx !== -1){
+    coachReact("unanswered", { pending: TEST.length - idx });
     // не даём завершить
     scrollToQuestion(idx);
     showFinishBlockedModal(idx); // добавим ниже
@@ -2954,7 +3481,9 @@ let stats = {
 
 // Состояние таймера пребывания
 let presenceTimerId = null;
-let isTabVisible = true;       // видимость вкладки
+let isTabVisible = true;
+const ACTIVE_IDLE_LIMIT_MS = 60000;
+let lastUserActivityAt = 0;
 
 function loadStats(){
   const saved = localStorage.getItem("quiz_stats");
@@ -3069,6 +3598,8 @@ function updateAchievementDisplay(){
 
 function tickPresenceTimer(){
   if (!isTabVisible) return;
+  if (!lastUserActivityAt) return;
+  if (Date.now() - lastUserActivityAt > ACTIVE_IDLE_LIMIT_MS) return;
 
   const before = stats.time_seconds;
   stats.time_seconds += 1;
@@ -3084,7 +3615,27 @@ function tickPresenceTimer(){
 
   saveStats();
   updateStatsUI();
+  submitLeaderboardScore({
+    percent,
+    questionsCount: TEST.length,
+    elapsedMs,
+    mode,
+    hardMode,
+    exp: gained,
+  });
 }
+
+function markUserActivity(){
+  if (document.hidden) return;
+  lastUserActivityAt = Date.now();
+}
+
+function setupActivityTracking(){
+  ["pointerdown", "keydown", "input", "change", "wheel", "touchstart"].forEach(eventName => {
+    document.addEventListener(eventName, markUserActivity, { passive: true });
+  });
+}
+
 function calcTestExp({ percent, questionsCount }){
   // ты можешь изменить формулу как хочешь
   // базово: чем больше вопросов, тем больше EXP
@@ -3527,9 +4078,11 @@ function renderAnalytics(){
 
 // Инициализация статистики при загрузке страницы
 loadStats();
+setupActivityTracking();
 startPresenceTimer();
 updateStatsUI();
 updateAchievementDisplay();
+requireAuth();
 
 // Обработчики для модального окна аналитики
 const analyticsBtn = document.getElementById("analyticsBtn");

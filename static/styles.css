@@ -1066,6 +1066,268 @@ details > :not(summary){
   cursor:not-allowed;
 }
 
+.coach-panel{
+  margin:0 0 14px;
+  padding:12px;
+  display:grid;
+  grid-template-columns:48px minmax(0,1fr);
+  gap:12px;
+  align-items:center;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:8px;
+  background:
+    linear-gradient(135deg,rgba(255,255,255,.055),rgba(255,255,255,.025)),
+    rgba(14,20,28,.82);
+  box-shadow:0 16px 36px rgba(0,0,0,.22);
+  backdrop-filter:blur(14px);
+}
+
+.coach-panel__badge{
+  width:48px;
+  height:48px;
+  display:grid;
+  place-items:center;
+  border:1px solid rgba(255,255,255,.20);
+  border-radius:8px;
+  background:rgba(255,255,255,.06);
+  color:#fff;
+  font-size:13px;
+  font-weight:900;
+  letter-spacing:0;
+}
+
+.coach-panel__top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  margin-bottom:4px;
+}
+
+.coach-panel__top strong{
+  color:#fff;
+  font-size:13px;
+  text-transform:uppercase;
+}
+
+.coach-panel__top span{
+  padding:3px 8px;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:999px;
+  color:var(--muted);
+  font-size:11px;
+  font-weight:800;
+  text-transform:uppercase;
+}
+
+.coach-panel p{
+  margin:0;
+  color:var(--text);
+  font-size:13px;
+  line-height:1.45;
+}
+
+.coach-panel[data-tone="strict"]{
+  border-color:rgba(235,151,48,.42);
+}
+
+.coach-panel[data-tone="strict"] .coach-panel__badge{
+  background:rgba(235,151,48,.16);
+}
+
+.coach-panel[data-tone="drill"]{
+  border-color:rgba(211,38,58,.58);
+  box-shadow:0 0 0 1px rgba(211,38,58,.12), 0 18px 38px rgba(0,0,0,.28);
+}
+
+.coach-panel[data-tone="drill"] .coach-panel__badge,
+.coach-panel[data-tone="danger"] .coach-panel__badge{
+  background:rgba(211,38,58,.22);
+}
+
+.coach-panel[data-tone="danger"]{
+  border-color:rgba(255,74,93,.74);
+  background:
+    linear-gradient(135deg,rgba(211,38,58,.18),rgba(255,255,255,.025)),
+    rgba(14,20,28,.88);
+}
+
+.coach-panel.is-pulsing{
+  animation:coachPulse .42s ease-out;
+}
+
+@keyframes coachPulse{
+  0%{ transform:translateY(0); }
+  35%{ transform:translateY(-2px); }
+  100%{ transform:translateY(0); }
+}
+
+.auth-gate,
+.leaderboard-modal{
+  position:fixed;
+  inset:0;
+  z-index:200;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:22px;
+  background:rgba(3,5,8,.78);
+  backdrop-filter:blur(10px);
+}
+
+.auth-gate.is-visible,
+.leaderboard-modal.is-visible{
+  display:flex;
+}
+
+.auth-card,
+.leaderboard-modal__content{
+  width:min(440px,100%);
+  padding:20px;
+  border:1px solid rgba(255,255,255,.18);
+  border-radius:8px;
+  background:linear-gradient(180deg,rgba(18,24,32,.96),rgba(8,12,17,.98));
+  box-shadow:0 24px 80px rgba(0,0,0,.46);
+}
+
+.auth-card h2,
+.leaderboard-modal__head h2{
+  margin:4px 0 6px;
+  color:#fff;
+  font-size:24px;
+}
+
+.auth-tabs{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px;
+  margin:16px 0;
+}
+
+.auth-tabs button{
+  min-height:38px;
+  border-color:rgba(255,255,255,.16);
+  background:rgba(255,255,255,.05);
+}
+
+.auth-tabs button.is-active{
+  border-color:rgba(211,38,58,.72);
+  background:rgba(211,38,58,.22);
+}
+
+.auth-form{
+  display:grid;
+  gap:12px;
+}
+
+.auth-form label{
+  display:grid;
+  gap:6px;
+  color:var(--muted);
+  font-size:12px;
+  font-weight:800;
+}
+
+.auth-form input{
+  min-height:42px;
+}
+
+.auth-error{
+  min-height:18px;
+  color:var(--bad);
+  font-size:12px;
+  font-weight:800;
+}
+
+.auth-rules{
+  margin-top:10px;
+  color:var(--muted);
+  font-size:12px;
+}
+
+.leaderboard-modal__overlay{
+  position:absolute;
+  inset:0;
+}
+
+.leaderboard-modal__content{
+  position:relative;
+  z-index:1;
+}
+
+.leaderboard-modal__head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:12px;
+}
+
+.leaderboard-user{
+  display:grid;
+  gap:4px;
+  margin-bottom:12px;
+  padding:10px;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:8px;
+  background:rgba(255,255,255,.04);
+}
+
+.leaderboard-user strong{
+  color:#fff;
+}
+
+.leaderboard-user span{
+  color:var(--muted);
+  font-size:12px;
+}
+
+.leaderboard-rows{
+  display:grid;
+  gap:8px;
+  max-height:420px;
+  overflow:auto;
+}
+
+.leaderboard-row{
+  display:grid;
+  grid-template-columns:32px minmax(0,1fr) auto;
+  gap:8px;
+  align-items:center;
+  padding:9px;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:8px;
+  background:rgba(255,255,255,.035);
+}
+
+.leaderboard-row.is-me{
+  border-color:rgba(211,38,58,.66);
+  background:rgba(211,38,58,.12);
+}
+
+.leaderboard-row span{
+  color:var(--accent);
+  font-weight:900;
+}
+
+.leaderboard-row strong{
+  min-width:0;
+  overflow:hidden;
+  color:#fff;
+  text-overflow:ellipsis;
+}
+
+.leaderboard-row em{
+  color:#fff;
+  font-style:normal;
+  font-weight:900;
+}
+
+.leaderboard-row small{
+  grid-column:2 / -1;
+  color:var(--muted);
+}
+
 .qhead .skipBadge{
   flex:0 0 auto;
   margin-left:auto;
@@ -2374,6 +2636,7 @@ h1,
   .launch-card,
   .panel,
   .card,
+  .coach-panel,
   .bank-tile,
   .progress-card,
   .app.is-running .hero,
@@ -2425,5 +2688,64 @@ h1,
     align-self:center;
     margin-left:0;
     white-space:nowrap;
+  }
+
+  .coach-panel{
+    width:calc(100vw - 24px);
+    margin:14px auto;
+    grid-template-columns:42px minmax(0,1fr);
+    gap:10px;
+    overflow:hidden;
+  }
+
+  .coach-panel__badge{
+    width:42px;
+    height:42px;
+  }
+
+  .coach-panel__top{
+    justify-content:flex-start;
+  }
+
+  .coach-panel__top span{
+    display:none;
+  }
+
+  .coach-panel p{
+    font-size:12px;
+  }
+
+  .auth-gate,
+  .leaderboard-modal{
+    padding:12px;
+    background:#080c12;
+    backdrop-filter:none;
+  }
+
+  .auth-card,
+  .leaderboard-modal__content{
+    width:calc(100vw - 24px);
+    max-width:100%;
+    box-sizing:border-box;
+    padding:14px;
+    box-shadow:none;
+  }
+
+  .auth-form input{
+    width:100%;
+    box-sizing:border-box;
+  }
+
+  .leaderboard-rows{
+    max-height:55vh;
+  }
+
+  .leaderboard-row{
+    grid-template-columns:28px minmax(0,1fr);
+  }
+
+  .leaderboard-row em,
+  .leaderboard-row small{
+    grid-column:2;
   }
 }
