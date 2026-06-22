@@ -2056,6 +2056,26 @@ function ensureCoachPanel(){
   return panel;
 }
 
+function normalizeCoachDisplayMessage(value){
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && typeof parsed.message === "string") {
+      return parsed.message.replace(/\s+/g, " ").trim();
+    }
+  } catch {}
+  const match = raw.match(/"message"\s*:\s*"((?:\\.|[^"\\])*)"/);
+  if (match) {
+    try {
+      return JSON.parse(`"${match[1]}"`).replace(/\s+/g, " ").trim();
+    } catch {
+      return match[1].replace(/\s+/g, " ").trim();
+    }
+  }
+  return raw;
+}
+
 function renderCoachPanel(message){
   if (!isAiCoachEnabled()){
     updateCoachToggleUI();
@@ -2067,6 +2087,11 @@ function renderCoachPanel(message){
   const title = panel.querySelector("#coachTitle");
   const tone = panel.querySelector("#coachTone");
   const msg = panel.querySelector("#coachMessage");
+  message = normalizeCoachDisplayMessage(message || coachState.lastMessage || "");
+  if (message && message !== coachState.lastMessage) {
+    coachState.lastMessage = message;
+    saveCoachState();
+  }
   const toneLabels = {
     kind: "РјСЏРіРєРѕ",
     strict: "СЃС‚СЂРѕРіРѕ",
@@ -2176,7 +2201,7 @@ function askLiveCoachHint(item, card, initialText = ""){
       },
     }),
   }).then(data => {
-    const message = String(data?.message || "").trim();
+    const message = normalizeCoachDisplayMessage(data?.message || "");
     if (answer) answer.textContent = message || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u043e\u043c\u043e\u043b\u0447\u0430\u043b. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u0441\u0444\u043e\u0440\u043c\u0443\u043b\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0438\u043d\u0430\u0447\u0435.";
     if (message) {
       coachState.lastMessage = message;
@@ -2355,7 +2380,7 @@ function showGeneralCommandDialog(action, context = {}){
             problemMode: Boolean(state.problemReview?.active || state.problemReview?.locked),
           }),
         });
-        if (data?.message && message) message.textContent = data.message;
+        if (data?.message && message) message.textContent = normalizeCoachDisplayMessage(data.message);
         const nextAction = data?.action && typeof data.action === "object" ? data.action : { type: "none" };
         if (String(nextAction.type || "none") === "start_micro_drill") {
           closeResult = true;
@@ -2531,7 +2556,7 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
       showAiCoachUnavailable(json.error || `http_${response.status}`, json.detail || json, localMessage);
       return;
     }
-    const message = String(json.message || "").trim();
+    const message = normalizeCoachDisplayMessage(json.message || "");
     if (!message) {
       showAiCoachUnavailable("empty_message", json, localMessage);
       return;

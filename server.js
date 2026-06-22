@@ -399,6 +399,17 @@ function parseCoachDecision(rawText){
     };
     return { message, action };
   } catch {
+    const messageMatch = jsonText.match(/"message"\s*:\s*"((?:\\.|[^"\\])*)"/);
+    if (messageMatch) {
+      let message = messageMatch[1];
+      try {
+        message = JSON.parse(`"${message}"`);
+      } catch {}
+      return {
+        message: String(message).replace(/\s+/g, " ").trim().slice(0, 320),
+        action: { type: "none" },
+      };
+    }
     return {
       message: raw.replace(/\s+/g, " ").trim().slice(0, 320),
       action: { type: "none" },
@@ -479,6 +490,7 @@ async function handleCoachMessage(req, res){
               "Sound like a living game character, not an AI assistant or notification: short, direct, emotional, varied, a little theatrical, with dry humor when appropriate. " +
               "Avoid repeating the same sentence structure. React to the exact event, score, streak, and weak spots instead of generic motivational lines. " +
               "Tone kind is warm and human, strict pushes focus, drill scolds carelessness, danger is harsher but still controlled. " +
+              "If the user insults, mocks, or provokes the general in userQuestion or userReply, answer with sharper sarcastic military banter and put them back on task. Be biting and memorable, but do not use profanity, slurs, threats, humiliation, or personal attacks. " +
               "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
               "If event is liveHint, the user is asking for help during an active question. You may give a hint, explain the concept/process, or refuse if they ask for the exact answer. Never reveal the correct option letter, exact answer text, or eliminate options too directly during liveHint. For liveHint always return action.type none. " +
               "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill\",\"size\":3,\"reason\":\"short internal reason\"}}. " +
