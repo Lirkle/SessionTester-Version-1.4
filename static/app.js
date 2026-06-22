@@ -3057,7 +3057,7 @@ function buildTestHard(){
 
   const hardItems = ALL.filter(x => hasHardQuestion(x.n));
   if (hardItems.length === 0){
-    alert("РќРµС‚ РїРѕРјРµС‡РµРЅРЅС‹С… СЃР»РѕР¶РЅС‹С… РІРѕРїСЂРѕСЃРѕРІ.");
+    alert("\u041d\u0435\u0442 \u043f\u043e\u043c\u0435\u0447\u0435\u043d\u043d\u044b\u0445 \u0441\u043b\u043e\u0436\u043d\u044b\u0445 \u0432\u043e\u043f\u0440\u043e\u0441\u043e\u0432.");
     return false;
   }
 
@@ -4378,7 +4378,7 @@ function getBankItems(key){
   const resolvedKey = resolveBankKey(key);
   const bank = window.QUIZ_BANKS[resolvedKey];
   if (!bank) {
-    alert("Р‘Р°РЅРє РЅРµ РЅР°Р№РґРµРЅ: " + resolvedKey);
+    alert("\u0411\u0430\u043d\u043a \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d: " + resolvedKey);
     return null;
   }
 
@@ -4639,7 +4639,7 @@ function abortTest(){
 
 if (abortBtn){
   abortBtn.addEventListener("click", () => {
-    if (confirm("РџСЂРµСЂРІР°С‚СЊ С‚РµСЃС‚ Рё РІС‹Р№С‚Рё? Р РµР·СѓР»СЊС‚Р°С‚ РЅРµ СЃРѕС…СЂР°РЅРёС‚СЃСЏ.")){
+    if (confirm("\u041f\u0440\u0435\u0440\u0432\u0430\u0442\u044c \u0442\u0435\u0441\u0442 \u0438 \u0432\u044b\u0439\u0442\u0438? \u0420\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442 \u043d\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u0441\u044f.")){
       abortTest();
     }
   });
@@ -5143,7 +5143,7 @@ function renderAnalytics(){
     clearSessionsBtnInitial.onclick = () => {
       const bankKey = bankSelect ? bankSelect.value : currentBankKey;
       const bankName = bankSelect ? bankSelect.options[bankSelect.selectedIndex].text : currentBankKey;
-      const confirmed = confirm(`РћС‡РёСЃС‚РёС‚СЊ РёСЃС‚РѕСЂРёСЋ СЃРµСЃСЃРёР№ РґР»СЏ Р±Р°РЅРєР° "${bankName}"? Р­С‚Рѕ РґРµР№СЃС‚РІРёРµ РЅРµР»СЊР·СЏ РѕС‚РјРµРЅРёС‚СЊ.`);
+      const confirmed = confirm(`\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0438\u0441\u0442\u043e\u0440\u0438\u044e \u0441\u0435\u0441\u0441\u0438\u0439 \u0434\u043b\u044f \u0431\u0430\u043d\u043a\u0430 "${bankName}"? \u042d\u0442\u043e \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043d\u0435\u043b\u044c\u0437\u044f \u043e\u0442\u043c\u0435\u043d\u0438\u0442\u044c.`);
       if (confirmed){
         localStorage.setItem(getSessionsKey(bankKey), JSON.stringify([]));
         renderAnalytics(); // РїРµСЂРµСЂРёСЃРѕРІС‹РІР°РµРј РІСЃСЋ Р°РЅР°Р»РёС‚РёРєСѓ
@@ -5203,7 +5203,7 @@ function renderAnalytics(){
         const bankSelectEl = document.getElementById("analyticsBankSelect");
         const currentBankKeyForClear = bankSelectEl ? bankSelectEl.value : bankKey;
         const bankName = bankSelectEl ? bankSelectEl.options[bankSelectEl.selectedIndex].text : bankKey;
-        const confirmed = confirm(`РћС‡РёСЃС‚РёС‚СЊ РёСЃС‚РѕСЂРёСЋ СЃРµСЃСЃРёР№ РґР»СЏ Р±Р°РЅРєР° "${bankName}"? Р­С‚Рѕ РґРµР№СЃС‚РІРёРµ РЅРµР»СЊР·СЏ РѕС‚РјРµРЅРёС‚СЊ.`);
+        const confirmed = confirm(`\u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c \u0438\u0441\u0442\u043e\u0440\u0438\u044e \u0441\u0435\u0441\u0441\u0438\u0439 \u0434\u043b\u044f \u0431\u0430\u043d\u043a\u0430 "${bankName}"? \u042d\u0442\u043e \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043d\u0435\u043b\u044c\u0437\u044f \u043e\u0442\u043c\u0435\u043d\u0438\u0442\u044c.`);
         if (confirmed){
           localStorage.setItem(getSessionsKey(currentBankKeyForClear), JSON.stringify([]));
           updateSessions(currentBankKeyForClear);
@@ -5321,7 +5321,7 @@ function renderAnalytics(){
     resetBtn.onclick = () => {
       const bankKey = bankSelect.value;
       const bankName = bankSelect.options[bankSelect.selectedIndex].text;
-      const confirmed = confirm(`РЎР±СЂРѕСЃРёС‚СЊ СЃС‚Р°С‚РёСЃС‚РёРєСѓ РґР»СЏ Р±Р°РЅРєР° "${bankName}"? Р­С‚Рѕ РґРµР№СЃС‚РІРёРµ РЅРµР»СЊР·СЏ РѕС‚РјРµРЅРёС‚СЊ.`);
+      const confirmed = confirm(`\u0421\u0431\u0440\u043e\u0441\u0438\u0442\u044c \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043a\u0443 \u0434\u043b\u044f \u0431\u0430\u043d\u043a\u0430 "${bankName}"? \u042d\u0442\u043e \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u0435 \u043d\u0435\u043b\u044c\u0437\u044f \u043e\u0442\u043c\u0435\u043d\u0438\u0442\u044c.`);
       if (confirmed){
         const currentAllStats = loadQStats();
         delete currentAllStats[bankKey];

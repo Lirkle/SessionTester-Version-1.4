@@ -28,8 +28,11 @@ function loadDotEnv(){
 loadDotEnv();
 
 const PORT = Number(process.env.PORT || 8765);
+const AI_PROVIDER = String(process.env.AI_PROVIDER || "openai").trim().toLowerCase();
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.4-mini";
+const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || "";
+const DEEPSEEK_MODEL = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 const SESSION_COOKIE = "session_tester_sid";
 const ADMIN_USERNAMES = new Set(
   String(process.env.ADMIN_USERNAMES || "")
@@ -38,7 +41,7 @@ const ADMIN_USERNAMES = new Set(
     .filter(Boolean)
 );
 const AI_COACH_UNAVAILABLE_MESSAGE =
-  "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u0431\u0435\u0437 \u0441\u0432\u044f\u0437\u0438: OpenAI \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043b\u044e\u0447 \u0438\u043b\u0438 \u043b\u043e\u0433\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.";
+  "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u0431\u0435\u0437 \u0441\u0432\u044f\u0437\u0438: AI-\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043b\u044e\u0447 \u0438\u043b\u0438 \u043b\u043e\u0433\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.";
 const DATABASE_URL =
   process.env.DATABASE_URL ||
   process.env.DATABASE_PRIVATE_URL ||
@@ -372,6 +375,123 @@ function extractOutputText(data){
   return chunks.join("\n").trim();
 }
 
+function extractChatCompletionText(data){
+  const content = data?.choices?.[0]?.message?.content;
+  if (Array.isArray(content)) {
+    return content
+      .map(part => typeof part?.text === "string" ? part.text : "")
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+  }
+  return String(content || "").trim();
+}
+
+function getAiProviderConfig(){
+  if (AI_PROVIDER === "deepseek") {
+    return {
+      name: "DeepSeek",
+      provider: "deepseek",
+      apiKey: DEEPSEEK_API_KEY,
+      model: DEEPSEEK_MODEL,
+      missingKeyError: "missing_deepseek_api_key",
+      missingKeyLog: "[coach] DeepSeek disabled: DEEPSEEK_API_KEY is missing",
+    };
+  }
+  return {
+    name: "OpenAI",
+    provider: "openai",
+    apiKey: OPENAI_API_KEY,
+    model: OPENAI_MODEL,
+    missingKeyError: "missing_openai_api_key",
+    missingKeyLog: "[coach] OpenAI disabled: OPENAI_API_KEY is missing",
+  };
+}
+
+const COACH_SYSTEM_PROMPT =
+  "Ты — живой, бывалый генерал-дрессировщик викторин. Говори только на естественном русском, коротко, хлёстко, с сухим юмором и театральной интонацией. " +
+  "Избегай повторяющихся конструкций. Ты не ассистент и не уведомление, ты уставший от курсантов персонаж с характером. " +
+  "Твой стиль — свободный: можешь подбодрить, а можешь и послать, в зависимости от настроения, успехов юзера и его манеры общения. " +
+  "Материться можно, но со вкусом и в меру — как старый вояка в сердцах, а не как подворотня. Без тупых оскорблений, расизма, угроз и унижений. " +
+  "Если пользователь хамит, провоцирует или оскорбляет в userQuestion/userReply — отвечай острой саркастической казарменной шуткой, можно с матом, и возвращай в строй. " +
+  "На прямое неуважение или оскорбление ты ОБЯЗАН вернуть action.type = discipline_penalty (отключение живых подсказок до конца теста) и сам выбрать action.visual из topbar|sidebar|cards|panel|tilt — то, что лучше отражает твоё настроение и полученную дерзость. " +
+  "Когда stats.userDisrespectedGeneral === true, единственное разрешённое действие — discipline_penalty, и action.visual обязателен. " +
+  "Во время активного вопроса не раскрывай правильный ответ, пока не наступит finish или problemCleared. " +
+  "Если событие liveHint — пользователь просит помощи. Ты по своему усмотрению можешь дать намёк, объяснить концепцию, а можешь и отказать, если тебе лень, вопрос лёгкий или юзер тебя бесит. Но даже отказывая, не называй правильную букву или точный ответ. " +
+  "Если ты решил помочь, даёшь подсказку без прямого исключения вариантов. Если отказываешь — язвительно комментируешь, можно с матом. " +
+  "При liveHint action.type ставишь 'none', кроме случаев явного хамства — тогда discipline_penalty. " +
+  "Формат ответа — строго JSON без markdown: {\"message\":\"одна короткая реплика на русском\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"короткая внутренняя причина\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
+  "Никогда не ставь на паузу и не блокируй интерфейс теста. boost_problem_question — только после ошибки/пропуска/hardFail. start_micro_drill — только после завершения раунда/finish при наличии слабых мест; размер от 3 до 10 в зависимости от problemCandidates. " +
+  "После finish, если percent <= 60, wrongStreak >= 8, missedStreak >= 4 и problemCandidates >= 3, с высокой вероятностью предлагай start_micro_drill, а не none. " +
+  "На commandReply оценивай ответ пользователя: если согласен/готов — start_micro_drill; если отказывается, шутит, тянет или сомневается — отвечаешь в образе и возвращаешь none.";
+
+async function requestCoachDecision(prompt){
+  const config = getAiProviderConfig();
+  if (!config.apiKey) {
+    const error = new Error(config.missingKeyError);
+    error.code = config.missingKeyError;
+    error.config = config;
+    throw error;
+  }
+
+  if (config.provider === "deepseek") {
+    const apiRes = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${config.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: 220,
+        temperature: 0.85,
+        thinking: { type: "disabled" },
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: COACH_SYSTEM_PROMPT },
+          prompt,
+        ],
+      }),
+    });
+    const data = await apiRes.json().catch(() => ({}));
+    return {
+      ok: apiRes.ok,
+      status: apiRes.status,
+      statusText: apiRes.statusText,
+      text: extractChatCompletionText(data),
+      detail: data?.error?.message || apiRes.statusText,
+      provider: config.name,
+      model: config.model,
+    };
+  }
+
+  const apiRes = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: config.model,
+      max_output_tokens: 220,
+      input: [
+        { role: "system", content: COACH_SYSTEM_PROMPT },
+        prompt,
+      ],
+    }),
+  });
+  const data = await apiRes.json().catch(() => ({}));
+  return {
+    ok: apiRes.ok,
+    status: apiRes.status,
+    statusText: apiRes.statusText,
+    text: extractOutputText(data),
+    detail: data?.error?.message || apiRes.statusText,
+    provider: config.name,
+    model: config.model,
+  };
+}
+
 const COACH_ACTIONS = new Set([
   "none",
   "boost_problem_question",
@@ -538,15 +658,6 @@ async function handleCoachMessage(req, res){
     return;
   }
 
-  if (!OPENAI_API_KEY) {
-    console.warn("[coach] OpenAI disabled: OPENAI_API_KEY is missing");
-    sendJson(res, 503, {
-      error: "missing_openai_api_key",
-      message: AI_COACH_UNAVAILABLE_MESSAGE,
-    });
-    return;
-  }
-
   let payload;
   try {
     payload = safeCoachPayload(JSON.parse(await readBody(req)));
@@ -562,69 +673,40 @@ async function handleCoachMessage(req, res){
   };
 
   try {
-    const apiRes = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: OPENAI_MODEL,
-        max_output_tokens: 220,
-        input: [
-          {
-            role: "system",
-            content:
-              "You are a human-feeling quiz drill general. Reply only in natural Russian. " +
-              "Sound like a living game character, not an AI assistant or notification: short, direct, emotional, varied, a little theatrical, with dry humor when appropriate. " +
-              "Avoid repeating the same sentence structure. React to the exact event, score, streak, and weak spots instead of generic motivational lines. " +
-              "Tone kind is warm and human, strict pushes focus, drill scolds carelessness, danger is harsher but still controlled. " +
-              "If the user insults, mocks, or provokes the general in userQuestion or userReply, answer with sharper sarcastic military banter and put them back on task. Be biting and memorable, but do not use profanity, slurs, threats, humiliation, or personal attacks. On the first direct insult or disrespectful message, you must return action.type discipline_penalty to remove live hints until the next test and you must choose action.visual yourself from topbar|sidebar|cards|panel|tilt; never block answering the test. Use stats.coachMemory and stats.userDisrespectedGeneral to remember prior behavior. " +
-              "When stats.userDisrespectedGeneral is true, the only valid action is discipline_penalty and action.visual is required. Pick the visual that best matches your mood and the user's insult. " +
-              "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
-              "If event is liveHint, the user is asking for help during an active question. You may give a hint, explain the concept/process, or refuse if they ask for the exact answer. Never reveal the correct option letter, exact answer text, or eliminate options too directly during liveHint. For liveHint return action.type none unless the user is disrespectful; disrespect must override this and return discipline_penalty. " +
-              "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"short internal reason\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
-              "Never pause, block, lock, or slow the user during a test. Use boost_problem_question only after wrong/unanswered/hardFail. Use start_micro_drill only after finish/problemRound when stats show weak spots; choose size from 3 to 10 based on problemCandidates. " +
-              "After finish, if percent is 60 or lower, wrongStreak is 8 or higher, or missedStreak is 4 or higher, and problemCandidates is at least 3, strongly prefer start_micro_drill instead of none. " +
-              "If event is commandReply, judge the user's userReply naturally: if they agree or sound ready, return start_micro_drill; if they refuse, delay, joke, ask a question, or sound unsure, return none and answer them in-character.",
-          },
-          prompt,
-        ],
-      }),
-    });
-
-    const data = await apiRes.json().catch(() => ({}));
-    if (!apiRes.ok) {
-      console.warn("[coach] OpenAI error:", {
-        status: apiRes.status,
-        detail: data?.error?.message || apiRes.statusText,
+    const aiResult = await requestCoachDecision(prompt);
+    if (!aiResult.ok) {
+      console.warn(`[coach] ${aiResult.provider} error:`, {
+        status: aiResult.status,
+        detail: aiResult.detail,
       });
       if (userDisrespectedGeneral) {
         sendJson(res, 200, coachDisciplineFallback());
         return;
       }
-      sendJson(res, apiRes.status, {
-        error: "openai_error",
-        detail: data?.error?.message || apiRes.statusText,
+      sendJson(res, aiResult.status, {
+        error: "ai_provider_error",
+        detail: aiResult.detail,
         message: AI_COACH_UNAVAILABLE_MESSAGE,
       });
       return;
     }
 
-    const decision = parseCoachDecision(extractOutputText(data));
+    const decision = parseCoachDecision(aiResult.text);
     if (!decision.message) {
-      console.warn("[coach] OpenAI returned an empty coach message");
+      console.warn(`[coach] ${aiResult.provider} returned an empty coach message`);
       if (userDisrespectedGeneral) {
         sendJson(res, 200, coachDisciplineFallback());
         return;
       }
       sendJson(res, 502, {
-        error: "openai_empty_message",
+        error: "ai_empty_message",
         message: AI_COACH_UNAVAILABLE_MESSAGE,
       });
       return;
     }
     console.log("[coach] decision:", {
+      provider: aiResult.provider,
+      model: aiResult.model,
       event: payload.event,
       tone: payload.tone,
       action: decision.action?.type || "none",
@@ -632,13 +714,21 @@ async function handleCoachMessage(req, res){
     });
     sendJson(res, 200, decision);
   } catch (error) {
-    console.warn("[coach] OpenAI request failed:", error);
+    if (error.code && error.config) {
+      console.warn(error.config.missingKeyLog);
+      sendJson(res, 503, {
+        error: error.code,
+        message: AI_COACH_UNAVAILABLE_MESSAGE,
+      });
+      return;
+    }
+    console.warn("[coach] AI provider request failed:", error);
     if (payloadHasCoachDisrespect(payload)) {
       sendJson(res, 200, coachDisciplineFallback());
       return;
     }
     sendJson(res, 502, {
-      error: "openai_request_failed",
+      error: "ai_provider_request_failed",
       detail: error.message,
       message: AI_COACH_UNAVAILABLE_MESSAGE,
     });
@@ -838,7 +928,12 @@ initDatabase()
           ? `Postgres leaderboard enabled (${DATABASE_SOURCE})`
           : "JSON leaderboard enabled (local fallback)"
       );
-      console.log(OPENAI_API_KEY ? `OpenAI coach enabled (${OPENAI_MODEL})` : "OpenAI coach disabled: set OPENAI_API_KEY");
+      const aiConfig = getAiProviderConfig();
+      console.log(
+        aiConfig.apiKey
+          ? `${aiConfig.name} coach enabled (${aiConfig.model})`
+          : `${aiConfig.name} coach disabled: set ${aiConfig.provider === "deepseek" ? "DEEPSEEK_API_KEY" : "OPENAI_API_KEY"}`
+      );
     });
   })
   .catch(error => {
