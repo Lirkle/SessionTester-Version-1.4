@@ -472,6 +472,15 @@ input[type="text"]:focus,
 
 .coach-toggle__icon::before{ content:"AI"; }
 
+.coach-toggle.is-disabled{
+  opacity:.58;
+  cursor:not-allowed;
+}
+
+.coach-toggle.is-disabled .hardmode-toggle__pill{
+  cursor:not-allowed;
+}
+
 .hardmode-toggle__text{
   display:flex;
   flex-direction:column;

@@ -7,6 +7,7 @@ const { Pool } = require("pg");
 const ROOT = __dirname;
 const DATA_DIR = path.join(ROOT, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
+const SETTINGS_FILE = path.join(DATA_DIR, "app-settings.json");
 const sessions = new Map();
 
 function loadDotEnv(){
@@ -30,6 +31,12 @@ const PORT = Number(process.env.PORT || 8765);
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
 const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-5.5";
 const SESSION_COOKIE = "session_tester_sid";
+const ADMIN_USERNAMES = new Set(
+  String(process.env.ADMIN_USERNAMES || "")
+    .split(",")
+    .map(name => name.trim().toLowerCase())
+    .filter(Boolean)
+);
 const AI_COACH_UNAVAILABLE_MESSAGE =
   "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u0431\u0435\u0437 \u0441\u0432\u044f\u0437\u0438: OpenAI \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043b\u044e\u0447 \u0438\u043b\u0438 \u043b\u043e\u0433\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.";
 const DATABASE_URL =
@@ -78,6 +85,9 @@ function ensureDataStore(){
   if (!fs.existsSync(USERS_FILE)) {
     fs.writeFileSync(USERS_FILE, JSON.stringify({ users: [] }, null, 2));
   }
+  if (!fs.existsSync(SETTINGS_FILE)) {
+    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(defaultAppSettings(), null, 2));
+  }
 }
 
 function loadUsers(){
@@ -93,6 +103,36 @@ function loadUsers(){
 function saveUsers(data){
   ensureDataStore();
   fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2));
+}
+
+function defaultAppSettings(){
+  return {
+    aiCoachEnabled: true,
+  };
+}
+
+function normalizeAppSettings(settings){
+  const base = defaultAppSettings();
+  const source = settings && typeof settings === "object" ? settings : {};
+  return {
+    aiCoachEnabled: source.aiCoachEnabled !== false,
+  };
+}
+
+function loadLocalSettings(){
+  ensureDataStore();
+  try {
+    return normalizeAppSettings(JSON.parse(fs.readFileSync(SETTINGS_FILE, "utf8")));
+  } catch {
+    return defaultAppSettings();
+  }
+}
+
+function saveLocalSettings(settings){
+  ensureDataStore();
+  const normalized = normalizeAppSettings(settings);
+  fs.writeFileSync(SETTINGS_FILE, JSON.stringify(normalized, null, 2));
+  return normalized;
 }
 
 function rowToUser(row){
@@ -120,6 +160,38 @@ async function initDatabase(){
     )
   `);
   await pgPool.query(`CREATE INDEX IF NOT EXISTS users_username_lower_idx ON users (LOWER(username))`);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+}
+
+async function getAppSettings(){
+  if (pgPool) {
+    const result = await pgPool.query("SELECT value FROM app_settings WHERE key = $1", ["global"]);
+    if (!result.rows[0]) return defaultAppSettings();
+    return normalizeAppSettings(result.rows[0].value);
+  }
+  return loadLocalSettings();
+}
+
+async function saveAppSettings(settings){
+  const normalized = normalizeAppSettings(settings);
+  if (pgPool) {
+    const result = await pgPool.query(
+      `INSERT INTO app_settings (key, value, updated_at)
+       VALUES ($1, $2, NOW())
+       ON CONFLICT (key)
+       DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+       RETURNING value`,
+      ["global", JSON.stringify(normalized)]
+    );
+    return normalizeAppSettings(result.rows[0]?.value);
+  }
+  return saveLocalSettings(normalized);
 }
 
 async function findUserById(id){
@@ -176,9 +248,15 @@ function publicUser(user){
   return {
     id: user.id,
     username: user.username,
+    isAdmin: isAdminUser(user),
     createdAt: user.createdAt,
     stats: user.stats || defaultUserStats(),
   };
+}
+
+function isAdminUser(user){
+  if (!user || !user.username) return false;
+  return ADMIN_USERNAMES.has(String(user.username).toLowerCase());
 }
 
 function defaultUserStats(){
@@ -297,7 +375,6 @@ function extractOutputText(data){
 const COACH_ACTIONS = new Set([
   "none",
   "boost_problem_question",
-  "suggest_break",
   "start_micro_drill",
 ]);
 
@@ -317,7 +394,7 @@ function parseCoachDecision(rawText){
     const type = COACH_ACTIONS.has(String(actionInput.type || "")) ? String(actionInput.type) : "none";
     const action = {
       type,
-      size: Math.max(3, Math.min(5, Number(actionInput.size || 3))),
+      size: Math.max(3, Math.min(10, Number(actionInput.size || 3))),
       reason: String(actionInput.reason || parsed.reason || "").replace(/\s+/g, " ").trim().slice(0, 180),
     };
     return { message, action };
@@ -346,6 +423,15 @@ function safeCoachPayload(input){
 async function handleCoachMessage(req, res){
   if (req.method !== "POST") {
     sendJson(res, 405, { error: "method_not_allowed" });
+    return;
+  }
+
+  const settings = await getAppSettings();
+  if (!settings.aiCoachEnabled) {
+    sendJson(res, 403, {
+      error: "ai_coach_disabled",
+      message: "\u0418\u0418-\u043d\u0430\u0441\u0442\u0430\u0432\u043d\u0438\u043a \u0432\u044b\u043a\u043b\u044e\u0447\u0435\u043d \u0430\u0434\u043c\u0438\u043d\u043e\u043c.",
+    });
     return;
   }
 
@@ -386,11 +472,12 @@ async function handleCoachMessage(req, res){
             role: "system",
             content:
               "You are a human-feeling quiz drill general. Reply only in natural Russian. " +
-              "Sound like a character next to the user, not an AI assistant: short, direct, alive, with personality. " +
-              "Tone kind is warm, strict pushes focus, drill scolds carelessness, danger is visibly harsher. " +
+              "Sound like a living game character, not an AI assistant or notification: short, direct, emotional, varied, a little theatrical, with dry humor when appropriate. " +
+              "Avoid repeating the same sentence structure. React to the exact event, score, streak, and weak spots instead of generic motivational lines. " +
+              "Tone kind is warm and human, strict pushes focus, drill scolds carelessness, danger is harsher but still controlled. " +
               "Do not insult, humiliate, swear, use slurs, or reveal the correct answer during an active question unless event is finish or problemCleared. " +
-              "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|suggest_break|start_micro_drill\",\"size\":3,\"reason\":\"short internal reason\"}}. " +
-              "Use boost_problem_question only after wrong/unanswered/hardFail. Use suggest_break after repeated misses or danger tone. Use start_micro_drill after finish/problemRound when stats show weak spots.",
+              "Return strict JSON only, no markdown: {\"message\":\"one short Russian coach line\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill\",\"size\":3,\"reason\":\"short internal reason\"}}. " +
+              "Never pause, block, lock, or slow the user during a test. Use boost_problem_question only after wrong/unanswered/hardFail. Use start_micro_drill only after finish/problemRound when stats show weak spots; choose size from 3 to 10 based on problemCandidates.",
           },
           prompt,
         ],
@@ -510,6 +597,33 @@ async function handleLeaderboard(req, res){
   sendJson(res, 200, { leaderboard: await leaderboardRows() });
 }
 
+async function handleSettings(req, res){
+  if (req.method !== "GET") return sendJson(res, 405, { error: "method_not_allowed" });
+  sendJson(res, 200, { settings: await getAppSettings() });
+}
+
+async function handleAdminSettings(req, res){
+  if (req.method !== "POST") return sendJson(res, 405, { error: "method_not_allowed" });
+
+  const user = await getSessionUser(req);
+  if (!user) return sendJson(res, 401, { error: "not_authenticated" });
+  if (!isAdminUser(user)) return sendJson(res, 403, { error: "admin_required" });
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req, 8 * 1024));
+  } catch {
+    return sendJson(res, 400, { error: "bad_json" });
+  }
+
+  const current = await getAppSettings();
+  const next = await saveAppSettings({
+    ...current,
+    aiCoachEnabled: body.aiCoachEnabled !== false,
+  });
+  sendJson(res, 200, { settings: next });
+}
+
 async function handleSubmitScore(req, res){
   if (req.method !== "POST") return sendJson(res, 405, { error: "method_not_allowed" });
 
@@ -588,6 +702,8 @@ const server = http.createServer((req, res) => {
   if (req.url === "/api/me") return runApi(handleMe, req, res);
   if (req.url === "/api/logout") return runApi(handleLogout, req, res);
   if (req.url === "/api/leaderboard") return runApi(handleLeaderboard, req, res);
+  if (req.url === "/api/settings") return runApi(handleSettings, req, res);
+  if (req.url === "/api/admin/settings") return runApi(handleAdminSettings, req, res);
   if (req.url === "/api/submit-score") return runApi(handleSubmitScore, req, res);
   serveStatic(req, res);
 });
