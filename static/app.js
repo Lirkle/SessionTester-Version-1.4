@@ -231,6 +231,7 @@ let leaderboardRowsCache = [];
 let microphoneAccessGranted = false;
 const COACH_THEME_NAMES = ["crimson", "frost", "venom", "ash", "royal", "ember"];
 const COACH_THEME_COOLDOWN_MS = 8 * 60 * 1000;
+const COACH_DEFAULT_THEME_RESET_VERSION = "professional-default-v1";
 const liveCoachHintUsed = new Set();
 let liveCoachHintsLocked = false;
 let coachMemory = {
@@ -1407,6 +1408,7 @@ function ensureAuthUI(){
 function applyAuthState(data){
   currentUser = data?.user || null;
   leaderboardRowsCache = Array.isArray(data?.leaderboard) ? data.leaderboard : leaderboardRowsCache;
+  resetOldCoachThemeOnce();
   loadCoachTheme();
   loadServerCoachMemory();
   restoreActiveTest();
@@ -1903,6 +1905,13 @@ function getCoachMemoryKey(){
 
 function getCoachThemeKey(){
   return `quiz_general_theme_v1_${currentUser?.id || "guest"}`;
+}
+
+function resetOldCoachThemeOnce(){
+  const key = `quiz_general_theme_reset_${COACH_DEFAULT_THEME_RESET_VERSION}_${currentUser?.id || "guest"}`;
+  if (localStorage.getItem(key) === "1") return;
+  localStorage.removeItem(getCoachThemeKey());
+  localStorage.setItem(key, "1");
 }
 
 function setCoachThemeClass(theme){

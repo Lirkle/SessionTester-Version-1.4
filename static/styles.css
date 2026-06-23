@@ -3444,3 +3444,141 @@ h1,
     grid-column:2;
   }
 }
+
+/* Professional default dark theme */
+body:not([class*="coach-theme--"]){
+  --bg:#0b0f14;
+  --bg-soft:#111821;
+  --surface:rgba(17,24,34,.94);
+  --surface-2:rgba(22,31,43,.94);
+  --surface-3:#1c2734;
+  --line:rgba(190,205,220,.16);
+  --line-strong:rgba(190,205,220,.28);
+  --text:#edf3f8;
+  --muted:#a5b3c2;
+  --muted-2:#728194;
+  --accent:#5b8def;
+  --accent-2:#43c6a3;
+  --accent2:var(--accent-2);
+  --ok:#43c6a3;
+  --bad:#e15c68;
+  --warn:#e3b45f;
+  --panel:var(--surface);
+  --panel2:var(--surface-2);
+  --stroke:var(--line);
+  --stroke2:var(--line);
+  --shadow:0 20px 48px rgba(0,0,0,.34);
+  --shadow2:0 12px 28px rgba(0,0,0,.22);
+  --ring:0 0 0 3px rgba(91,141,239,.24);
+  background:
+    linear-gradient(180deg,rgba(11,15,20,.98),rgba(11,15,20,.96)),
+    radial-gradient(circle at 18% 8%,rgba(91,141,239,.12),transparent 28%),
+    radial-gradient(circle at 82% 20%,rgba(67,198,163,.08),transparent 30%),
+    #0b0f14;
+}
+
+body:not([class*="coach-theme--"])::before{
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.035),transparent 18%),
+    repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0,rgba(255,255,255,.018) 1px,transparent 1px,transparent 5px);
+  mix-blend-mode:normal;
+  opacity:.5;
+}
+
+body:not([class*="coach-theme--"]) .app::before,
+body:not([class*="coach-theme--"]) .app::after,
+body:not([class*="coach-theme--"]) .topbar::before,
+body:not([class*="coach-theme--"]) .topbar::after,
+body:not([class*="coach-theme--"]) .panel::before,
+body:not([class*="coach-theme--"]) .hero::before,
+body:not([class*="coach-theme--"]) .launch-card::before,
+body:not([class*="coach-theme--"]) .bank-tile::before,
+body:not([class*="coach-theme--"]) .progress-card::before,
+body:not([class*="coach-theme--"]) .app.is-running .grid .card::before,
+body:not([class*="coach-theme--"]) .app.is-running .grid .card::after{
+  display:none;
+}
+
+body:not([class*="coach-theme--"]) .topbar,
+body:not([class*="coach-theme--"]) .bottombar{
+  background:rgba(12,17,24,.88);
+  border-color:var(--line);
+  box-shadow:0 10px 26px rgba(0,0,0,.22);
+  backdrop-filter:blur(16px);
+}
+
+body:not([class*="coach-theme--"]) .panel,
+body:not([class*="coach-theme--"]) .card,
+body:not([class*="coach-theme--"]) .hero,
+body:not([class*="coach-theme--"]) .launch-card,
+body:not([class*="coach-theme--"]) .bank-tile,
+body:not([class*="coach-theme--"]) .progress-card,
+body:not([class*="coach-theme--"]) .analytics-modal__content{
+  border-color:var(--line);
+  background:linear-gradient(180deg,rgba(17,24,34,.94),rgba(12,18,26,.94));
+  box-shadow:var(--shadow2);
+  backdrop-filter:blur(12px);
+}
+
+body:not([class*="coach-theme--"]) .panel__head,
+body:not([class*="coach-theme--"]) .analytics-modal__header{
+  background:rgba(255,255,255,.035);
+  border-color:var(--line);
+}
+
+body:not([class*="coach-theme--"]) .panel__title,
+body:not([class*="coach-theme--"]) .hero__title,
+body:not([class*="coach-theme--"]) .bank-tile__name,
+body:not([class*="coach-theme--"]) .analytics-modal__title{
+  color:var(--text);
+  text-shadow:none;
+}
+
+body:not([class*="coach-theme--"]) button{
+  background:var(--accent);
+  color:#fff;
+  box-shadow:none;
+}
+
+body:not([class*="coach-theme--"]) button:hover{
+  background:#6c9cff;
+}
+
+body:not([class*="coach-theme--"]) button.secondary,
+body:not([class*="coach-theme--"]) .translate-btn,
+body:not([class*="coach-theme--"]) .pill,
+body:not([class*="coach-theme--"]) .choice,
+body:not([class*="coach-theme--"]) .hardmode-toggle__pill,
+body:not([class*="coach-theme--"]) .flagToggle,
+body:not([class*="coach-theme--"]) .helper,
+body:not([class*="coach-theme--"]) .kbd{
+  border-color:var(--line);
+  background:rgba(255,255,255,.045);
+  color:var(--text);
+}
+
+body:not([class*="coach-theme--"]) .choice:hover,
+body:not([class*="coach-theme--"]) button.secondary:hover,
+body:not([class*="coach-theme--"]) .translate-btn:hover,
+body:not([class*="coach-theme--"]) .flagToggle:hover{
+  background:rgba(255,255,255,.075);
+  border-color:var(--line-strong);
+}
+
+body:not([class*="coach-theme--"]) .choice:has(input:checked){
+  border-color:rgba(91,141,239,.62);
+  background:rgba(91,141,239,.14);
+  box-shadow:0 0 0 1px rgba(91,141,239,.18);
+}
+
+body:not([class*="coach-theme--"]) .eyebrow,
+body:not([class*="coach-theme--"]) .progress-card span,
+body:not([class*="coach-theme--"]) .launch-card__stats strong{
+  color:var(--accent-2);
+}
+
+body:not([class*="coach-theme--"]) .coach-panel[data-tone="danger"],
+body:not([class*="coach-theme--"]) .coach-panel[data-tone="drill"]{
+  border-color:rgba(225,92,104,.52);
+  background:linear-gradient(180deg,rgba(35,22,29,.94),rgba(18,20,28,.94));
+}
