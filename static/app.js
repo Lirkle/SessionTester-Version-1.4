@@ -1615,16 +1615,52 @@ let timerId = null;
 
 /** Focus mode controller */
 const GENERAL_CHAOS_VARIANTS = ["topbar", "sidebar", "cards", "panel", "tilt"];
+let activeGeneralChaosVariant = "";
+
+function getGeneralPunishmentKey(){
+  return `quiz_general_punishment_v1_${currentUser?.id || "guest"}`;
+}
+
+function saveGeneralPunishment(variant){
+  if (!GENERAL_CHAOS_VARIANTS.includes(variant)) return;
+  localStorage.setItem(getGeneralPunishmentKey(), JSON.stringify({
+    active: true,
+    variant,
+    savedAt: Date.now(),
+  }));
+}
+
+function loadGeneralPunishment(){
+  const saved = readJson(getGeneralPunishmentKey(), null);
+  if (!saved || saved.active !== true) return null;
+  if (!GENERAL_CHAOS_VARIANTS.includes(saved.variant)) return null;
+  const maxAgeMs = 24 * 60 * 60 * 1000;
+  if (Date.now() - Number(saved.savedAt || 0) > maxAgeMs) {
+    clearGeneralPunishment();
+    return null;
+  }
+  return saved;
+}
+
+function clearGeneralPunishment(){
+  localStorage.removeItem(getGeneralPunishmentKey());
+}
 
 function setGeneralChaosMode(on, variant = ""){
   document.body.classList.remove(
     "general-chaos",
     ...GENERAL_CHAOS_VARIANTS.map(name => `general-chaos--${name}`)
   );
-  if (!on) return;
+  activeGeneralChaosVariant = "";
+  if (!on) {
+    clearGeneralPunishment();
+    return;
+  }
   const nextVariant = GENERAL_CHAOS_VARIANTS.includes(variant)
     ? variant
     : GENERAL_CHAOS_VARIANTS[Math.floor(Math.random() * GENERAL_CHAOS_VARIANTS.length)];
+  activeGeneralChaosVariant = nextVariant;
+  saveGeneralPunishment(nextVariant);
   document.body.classList.add("general-chaos", `general-chaos--${nextVariant}`);
 }
 
@@ -1726,6 +1762,7 @@ function getActiveTestKey(){
 
 function clearActiveTest(){
   localStorage.removeItem(getActiveTestKey());
+  clearGeneralPunishment();
 }
 
 function saveActiveTest(){
@@ -1744,6 +1781,7 @@ function saveActiveTest(){
     isProblemReviewMode,
     activeProblemReviewBank,
     liveCoachHintsLocked,
+    activeGeneralChaosVariant,
     liveCoachHintUsed: Array.from(liveCoachHintUsed),
     test: TEST,
     answers: Array.from(answers.entries()),
@@ -1784,7 +1822,11 @@ function restoreActiveTest(){
     lastStartWasHardOnly = Boolean(saved.lastStartWasHardOnly);
     isProblemReviewMode = Boolean(saved.isProblemReviewMode);
     activeProblemReviewBank = saved.activeProblemReviewBank || null;
-    liveCoachHintsLocked = Boolean(saved.liveCoachHintsLocked);
+    const savedPunishment = loadGeneralPunishment();
+    liveCoachHintsLocked = Boolean(saved.liveCoachHintsLocked || savedPunishment?.active);
+    activeGeneralChaosVariant = GENERAL_CHAOS_VARIANTS.includes(saved.activeGeneralChaosVariant)
+      ? saved.activeGeneralChaosVariant
+      : (savedPunishment?.variant || "");
     liveCoachHintUsed.clear();
     if (Array.isArray(saved.liveCoachHintUsed)) {
       saved.liveCoachHintUsed.forEach(key => liveCoachHintUsed.add(String(key)));
@@ -1798,6 +1840,11 @@ function restoreActiveTest(){
     elOut.style.display = "none";
     elOut.innerHTML = "";
     setRunning(true);
+    if (liveCoachHintsLocked && activeGeneralChaosVariant) {
+      setGeneralChaosMode(true, activeGeneralChaosVariant);
+    } else {
+      setGeneralChaosMode(false);
+    }
     renderTest();
     startTimer(Number(saved.startedAt || Date.now()));
     startBtn.disabled = true;
@@ -2604,6 +2651,7 @@ function applyCoachDisciplinePenalty(action = {}, context = {}){
     : "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0443\u0440\u0435\u0437\u0430\u043b \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043a\u0438 \u0437\u0430 \u043a\u0440\u0438\u0432\u043e\u0439 \u0431\u0430\u0437\u0430\u0440."
   );
   refreshCoachHelpLocks();
+  saveActiveTest();
   logAiCoachAction({ type: "discipline_penalty", event: context.event || "", reason });
 }
 
