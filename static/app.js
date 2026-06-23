@@ -1734,6 +1734,7 @@ const PROBLEM_REVIEW_SIZE = 10;
 const PROBLEM_CLEAR_STREAK = 2;
 const PROBLEM_ATTEMPT_LIMIT = 12;
 const PROBLEM_REVIEW_VERSION = 1;
+const AI_MICRO_DRILL_MIN_SIZE = 10;
 const COACH_STATE_KEY = "quiz_general_coach_v1";
 const AI_ACTION_LOG_KEY = "quiz_ai_coach_actions_v1";
 const COACH_DEFAULT_AVATAR = "static/img/general-avatar.jpg";
@@ -2795,6 +2796,7 @@ function askLiveCoachHint(item, card, initialText = ""){
 }
 
 function addCoachHelp(card, item){
+  if (isAiMicroDrillMode()) return;
   const help = document.createElement("div");
   help.className = "coach-help";
   help.innerHTML = `
@@ -3254,7 +3256,7 @@ function shouldForceAiMicroDrill(event, data = {}, action = null){
   if (!["finish", "problemRound"].includes(event)) return false;
 
   const candidates = getProblemCandidates(currentBankKey).length;
-  if (candidates < 3) return false;
+  if (candidates < AI_MICRO_DRILL_MIN_SIZE) return false;
   if (startBtn.disabled && TEST.length && !isInLearningMode) return false;
 
   const percent = Number(data.percent || 0);
@@ -3402,7 +3404,7 @@ function buildTestHard(){
 function buildProblemReviewTest(review){
   answers.clear();
   liveCoachHintUsed.clear();
-  liveCoachHintsLocked = false;
+  liveCoachHintsLocked = Boolean(review?.aiMicro);
   if (!review || !Array.isArray(review.questionIds)) return false;
 
   const pendingIds = review.questionIds
@@ -3632,10 +3634,16 @@ function boostProblemQuestionPriority(item, reason = ""){
 
 function prepareAiMicroDrill(size = 3, reason = ""){
   const key = resolveBankKey(currentBankKey);
-  const limit = Math.max(3, Math.min(10, Number(size || 3)));
+  const requested = Math.max(AI_MICRO_DRILL_MIN_SIZE, Number(size || AI_MICRO_DRILL_MIN_SIZE));
+  const limit = Math.min(PROBLEM_REVIEW_SIZE, requested);
   const candidates = getProblemCandidates(key).slice(0, limit);
-  if (candidates.length < 3) {
+  if (candidates.length < AI_MICRO_DRILL_MIN_SIZE) {
     logAiCoachAction({ type: "start_micro_drill", skipped: true, reason: "not_enough_candidates" });
+    return null;
+  }
+  const existing = loadProblemReview(key);
+  if (existing && existing.active && existing.questionIds.length) {
+    logAiCoachAction({ type: "start_micro_drill", skipped: true, reason: "review_already_active" });
     return null;
   }
   if (startBtn.disabled && TEST.length && !isInLearningMode) {
@@ -3664,6 +3672,46 @@ function startAiMicroDrill(review, reason = ""){
   logAiCoachAction({ type: "start_micro_drill", size: review.questionIds.length, reason });
   showAiActionToast("\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0437\u0430\u043f\u0443\u0441\u043a\u0430\u0435\u0442 \u043c\u0438\u043a\u0440\u043e-\u043e\u0442\u0440\u0430\u0431\u043e\u0442\u043a\u0443: \u0441\u043b\u0430\u0431\u044b\u0435 \u0432\u043e\u043f\u0440\u043e\u0441\u044b \u043d\u0430 \u0441\u0442\u043e\u043b.");
   setTimeout(() => startQuiz({ hardOnly: false }), 650);
+  return true;
+}
+
+function maybeQueuePersonalGeneralDrill(context = {}){
+  if (isProblemReviewMode) return false;
+  if (!isAiCoachEnabled()) return false;
+  const key = resolveBankKey(currentBankKey);
+  const existing = loadProblemReview(key);
+  if (existing && existing.active && existing.questionIds.length) return false;
+  const candidates = getProblemCandidates(key);
+  if (candidates.length < AI_MICRO_DRILL_MIN_SIZE) {
+    logAiCoachAction({
+      type: "start_micro_drill",
+      skipped: true,
+      reason: "waiting_for_10_problem_candidates",
+      candidates: candidates.length,
+    });
+    return false;
+  }
+
+  const review = prepareAiMicroDrill(PROBLEM_REVIEW_SIZE, "10 personal weak spots collected");
+  if (!review) return false;
+
+  const message = "\u041d\u0430\u0431\u0440\u0430\u043b\u043e\u0441\u044c 10 \u0441\u043b\u0430\u0431\u044b\u0445 \u0442\u043e\u0447\u0435\u043a. \u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0441\u043e\u0431\u0440\u0430\u043b \u043b\u0438\u0447\u043d\u044b\u0439 \u0442\u0435\u0441\u0442: \u0431\u0435\u0437 \u043f\u043e\u0434\u0441\u043a\u0430\u0437\u043e\u043a, \u0431\u0435\u0437 \u0441\u043f\u0430\u0441\u0430\u0442\u0435\u043b\u044c\u043d\u044b\u0445 \u043a\u0440\u0443\u0433\u043e\u0432.";
+  setTimeout(async () => {
+    const shouldStart = await showGeneralCommandDialog(
+      {
+        type: "start_micro_drill",
+        size: review.questionIds.length,
+        reason: "10 personal weak spots collected",
+      },
+      { event: "finish", data: context, message }
+    );
+    if (!shouldStart) {
+      saveProblemReview(key, review);
+      showAiActionToast("\u041b\u0438\u0447\u043d\u044b\u0439 \u0442\u0435\u0441\u0442 \u0433\u0435\u043d\u0435\u0440\u0430\u043b\u0430 \u043f\u043e\u0441\u0442\u0430\u0432\u043b\u0435\u043d \u0432 \u043e\u0447\u0435\u0440\u0435\u0434\u044c. \u0421\u043b\u0435\u0434\u0443\u044e\u0449\u0438\u0439 \u0441\u0442\u0430\u0440\u0442 \u043f\u043e\u0439\u0434\u0435\u0442 \u0442\u0443\u0434\u0430.");
+      return;
+    }
+    startAiMicroDrill(review, "10 personal weak spots collected");
+  }, 900);
   return true;
 }
 
@@ -3754,6 +3802,7 @@ function loadProblemReview(bankKey){
   review.questionIds = review.questionIds.map(String).slice(0, PROBLEM_REVIEW_SIZE);
   review.progress = (review.progress && typeof review.progress === "object") ? review.progress : {};
   review.active = review.active !== false;
+  review.aiMicro = Boolean(review.aiMicro);
   return review;
 }
 
@@ -3825,6 +3874,15 @@ function getProblemReviewStatus(bankKey = currentBankKey){
   }
   const count = getProblemCandidates(key).length;
   return { bankKey: key, active: false, total: Math.min(count, PROBLEM_REVIEW_SIZE), done: 0, pending: Math.min(count, PROBLEM_REVIEW_SIZE) };
+}
+
+function getActiveProblemReview(){
+  if (!isProblemReviewMode) return null;
+  return loadProblemReview(activeProblemReviewBank || currentBankKey);
+}
+
+function isAiMicroDrillMode(){
+  return Boolean(getActiveProblemReview()?.aiMicro);
 }
 
 function markProblemQuestionsMastered(bankKey, questionIds){
@@ -4429,6 +4487,14 @@ submitLeaderboardScore({
   exp: gained,
 });
 
+if (!wasProblemReviewMode) {
+  maybeQueuePersonalGeneralDrill({
+    wrong: wrong.length,
+    percent,
+    questionsCount: TEST.length,
+    elapsedMs,
+  });
+}
 
 
   // Scroll to results with smooth behavior
