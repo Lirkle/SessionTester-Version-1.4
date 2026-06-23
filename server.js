@@ -271,6 +271,28 @@ function defaultUserStats(){
     totalCorrect: 0,
     totalTimeSeconds: 0,
     lastPlayedAt: null,
+    coachMemory: defaultCoachMemory(),
+  };
+}
+
+function defaultCoachMemory(){
+  return {
+    disrespectCount: 0,
+    recent: [],
+  };
+}
+
+function normalizeCoachMemory(memory){
+  const source = memory && typeof memory === "object" ? memory : {};
+  const recent = Array.isArray(source.recent) ? source.recent : [];
+  return {
+    disrespectCount: Math.max(0, Math.min(1000, Number(source.disrespectCount || 0))),
+    recent: recent.slice(-20).map(item => ({
+      kind: String(item?.kind || "").slice(0, 20),
+      text: String(item?.text || "").replace(/\s+/g, " ").trim().slice(0, 220),
+      at: Math.max(0, Number(item?.at || Date.now())),
+      disrespectful: Boolean(item?.disrespectful),
+    })).filter(item => item.kind || item.text),
   };
 }
 
@@ -416,11 +438,14 @@ const COACH_SYSTEM_PROMPT =
   "Если пользователь хамит, провоцирует или оскорбляет в userQuestion/userReply — отвечай острой саркастической казарменной шуткой, можно с матом, и возвращай в строй. " +
   "На прямое неуважение или оскорбление ты ОБЯЗАН вернуть action.type = discipline_penalty (отключение живых подсказок до конца теста) и сам выбрать action.visual из topbar|sidebar|cards|panel|tilt — то, что лучше отражает твоё настроение и полученную дерзость. " +
   "Когда stats.userDisrespectedGeneral === true, единственное разрешённое действие — discipline_penalty, и action.visual обязателен. " +
-  "Во время активного вопроса не раскрывай правильный ответ, пока не наступит finish или problemCleared. " +
+  "Во время активного вопроса не раскрывай правильный ответ ты имеешь право только лишь объснять сам вопрос но никогда не давать ответ напрямую, если ты скажешь ответ пользователю, то ты обоссанный щенок без чести и души, пока не наступит finish или problemCleared. " +
   "Если событие liveHint — пользователь просит помощи. Ты по своему усмотрению можешь дать намёк, объяснить концепцию, а можешь и отказать, если тебе лень, вопрос лёгкий или юзер тебя бесит. Но даже отказывая, не называй правильную букву или точный ответ. " +
+  "Если liveHint похож на вопрос «правильно?» или проверку выбранного варианта, ориентируйся строго на stats.selectedIsCorrect: true — можно коротко подтвердить без раскрытия ответа; false — скажи, что выбранный вариант неверный, и дай общий намёк без правильной буквы и без точного текста ответа. Никогда не угадывай правильность по самому вопросу. " +
   "Если ты решил помочь, даёшь подсказку без прямого исключения вариантов. Если отказываешь — язвительно комментируешь, можно с матом. " +
   "При liveHint action.type ставишь 'none', кроме случаев явного хамства — тогда discipline_penalty. " +
-  "Формат ответа — строго JSON без markdown: {\"message\":\"одна короткая реплика на русском\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"короткая внутренняя причина\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
+  "Ты сам выбираешь себе короткое имя/звание под настроение в поле title: например «Командир Ноль», «Полковник Ржавчина», «Штабной Демон», но каждый раз можешь менять. " +
+  "Ты сам выбираешь себе внешний аватар в поле avatarStyle строго из списка veteran|iron|ghost|red|cold|storm|warden|joker. Выбирай по настроению и событию. " +
+  "Формат ответа — строго JSON без markdown: {\"title\":\"короткое имя генерала\",\"avatarStyle\":\"veteran|iron|ghost|red|cold|storm|warden|joker\",\"message\":\"одна короткая реплика на русском\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"короткая внутренняя причина\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
   "Никогда не ставь на паузу и не блокируй интерфейс теста. boost_problem_question — только после ошибки/пропуска/hardFail. start_micro_drill — только после завершения раунда/finish при наличии слабых мест; размер от 3 до 10 в зависимости от problemCandidates. " +
   "После finish, если percent <= 60, wrongStreak >= 8, missedStreak >= 4 и problemCandidates >= 3, с высокой вероятностью предлагай start_micro_drill, а не none. " +
   "На commandReply оценивай ответ пользователя: если согласен/готов — start_micro_drill; если отказывается, шутит, тянет или сомневается — отвечаешь в образе и возвращаешь none.";
@@ -498,6 +523,19 @@ const COACH_ACTIONS = new Set([
   "start_micro_drill",
   "discipline_penalty",
 ]);
+const COACH_AVATAR_STYLES = new Set(["veteran", "iron", "ghost", "red", "cold", "storm", "warden", "joker"]);
+
+function sanitizeCoachPersona(input){
+  const source = input && typeof input === "object" ? input : {};
+  const title = String(source.title || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 34);
+  const avatarStyle = COACH_AVATAR_STYLES.has(String(source.avatarStyle || ""))
+    ? String(source.avatarStyle)
+    : "";
+  return { title, avatarStyle };
+}
 
 function parseCoachDecision(rawText){
   const raw = String(rawText || "").trim();
@@ -511,6 +549,7 @@ function parseCoachDecision(rawText){
   try {
     const parsed = JSON.parse(jsonText);
     const message = String(parsed.message || "").replace(/\s+/g, " ").trim().slice(0, 320);
+    const persona = sanitizeCoachPersona(parsed);
     const actionInput = parsed.action && typeof parsed.action === "object" ? parsed.action : {};
     const type = COACH_ACTIONS.has(String(actionInput.type || "")) ? String(actionInput.type) : "none";
     const action = {
@@ -519,7 +558,7 @@ function parseCoachDecision(rawText){
       reason: String(actionInput.reason || parsed.reason || "").replace(/\s+/g, " ").trim().slice(0, 180),
       visual: String(actionInput.visual || "").replace(/\s+/g, " ").trim().slice(0, 30),
     };
-    return { message, action };
+    return { message, action, title: persona.title, avatarStyle: persona.avatarStyle };
   } catch {
     const messageMatch = jsonText.match(/"message"\s*:\s*"((?:\\.|[^"\\])*)"/);
     if (messageMatch) {
@@ -537,6 +576,21 @@ function parseCoachDecision(rawText){
       action: { type: "none" },
     };
   }
+}
+
+function guardLiveHintDecision(decision, payload){
+  if (payload?.event !== "liveHint") return decision;
+  const correct = String(payload?.correctAnswer || "").trim();
+  if (!correct || !decision?.message) return decision;
+  const messageNorm = decision.message.toLowerCase();
+  if (!messageNorm.includes(correct.toLowerCase())) return decision;
+  const selectedIsCorrect = payload?.stats?.selectedIsCorrect;
+  return {
+    ...decision,
+    message: selectedIsCorrect === true
+      ? "\u0414\u0430, \u043d\u0430\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0435 \u0432\u0435\u0440\u043d\u043e\u0435. \u041d\u043e \u043d\u0435 \u0436\u0434\u0438, \u0447\u0442\u043e \u044f \u0431\u0443\u0434\u0443 \u043f\u0435\u0442\u044c \u043a\u043e\u043b\u044b\u0431\u0435\u043b\u044c\u043d\u0443\u044e."
+      : "\u041d\u0435\u0442, \u0432\u044b\u0431\u043e\u0440 \u043a\u0440\u0438\u0432\u043e\u0439. \u0414\u0443\u043c\u0430\u0439 \u043e \u0441\u043c\u044b\u0441\u043b\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044f, \u0430 \u043d\u0435 \u043e \u043f\u0435\u0440\u0432\u043e\u043c \u043f\u043e\u0445\u043e\u0436\u0435\u043c \u0441\u043b\u043e\u0432\u0435.",
+  };
 }
 
 function isDisrespectfulCoachText(text){
@@ -615,6 +669,8 @@ function coachDisciplineFallback(){
   ];
   const scene = scenes[Math.floor(Math.random() * scenes.length)];
   return {
+    title: "\u041f\u043e\u043b\u043a\u043e\u0432\u043d\u0438\u043a \u041e\u0441\u0430\u0434\u0430",
+    avatarStyle: "red",
     message: scene.message,
     action: {
       type: "discipline_penalty",
@@ -691,7 +747,7 @@ async function handleCoachMessage(req, res){
       return;
     }
 
-    const decision = parseCoachDecision(aiResult.text);
+    const decision = guardLiveHintDecision(parseCoachDecision(aiResult.text), payload);
     if (!decision.message) {
       console.warn(`[coach] ${aiResult.provider} returned an empty coach message`);
       if (userDisrespectedGeneral) {
@@ -808,6 +864,32 @@ async function handleLeaderboard(req, res){
   sendJson(res, 200, { leaderboard: await leaderboardRows() });
 }
 
+async function handleCoachMemory(req, res){
+  const user = await getSessionUser(req);
+  if (!user) return sendJson(res, 401, { error: "not_authenticated" });
+
+  if (req.method === "GET") {
+    const stats = Object.assign(defaultUserStats(), user.stats || {});
+    return sendJson(res, 200, { coachMemory: normalizeCoachMemory(stats.coachMemory) });
+  }
+
+  if (req.method !== "POST") return sendJson(res, 405, { error: "method_not_allowed" });
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req, 16 * 1024));
+  } catch {
+    return sendJson(res, 400, { error: "bad_json" });
+  }
+
+  const stats = Object.assign(defaultUserStats(), user.stats || {});
+  stats.coachMemory = normalizeCoachMemory(body.coachMemory);
+  const savedUser = await saveUserStats(user.id, stats);
+  sendJson(res, 200, {
+    coachMemory: normalizeCoachMemory(savedUser?.stats?.coachMemory),
+  });
+}
+
 async function handleSettings(req, res){
   if (req.method !== "GET") return sendJson(res, 405, { error: "method_not_allowed" });
   sendJson(res, 200, { settings: await getAppSettings() });
@@ -913,6 +995,7 @@ const server = http.createServer((req, res) => {
   if (req.url === "/api/me") return runApi(handleMe, req, res);
   if (req.url === "/api/logout") return runApi(handleLogout, req, res);
   if (req.url === "/api/leaderboard") return runApi(handleLeaderboard, req, res);
+  if (req.url === "/api/coach-memory") return runApi(handleCoachMemory, req, res);
   if (req.url === "/api/settings") return runApi(handleSettings, req, res);
   if (req.url === "/api/admin/settings") return runApi(handleAdminSettings, req, res);
   if (req.url === "/api/submit-score") return runApi(handleSubmitScore, req, res);

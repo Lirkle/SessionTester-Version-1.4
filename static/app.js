@@ -231,10 +231,11 @@ let leaderboardRowsCache = [];
 let microphoneAccessGranted = false;
 const liveCoachHintUsed = new Set();
 let liveCoachHintsLocked = false;
-const coachMemory = {
+let coachMemory = {
   recent: [],
   disrespectCount: 0
 };
+let coachMemorySyncTimer = null;
 
 async function apiJson(url, options = {}){
   const response = await fetch(url, {
@@ -1404,6 +1405,8 @@ function ensureAuthUI(){
 function applyAuthState(data){
   currentUser = data?.user || null;
   leaderboardRowsCache = Array.isArray(data?.leaderboard) ? data.leaderboard : leaderboardRowsCache;
+  loadServerCoachMemory();
+  restoreActiveTest();
   renderUserBadge();
   renderLeaderboard();
   updateCoachToggleUI();
@@ -1490,11 +1493,13 @@ function hideLeaderboard(){
 }
 
 async function logoutUser(){
+  syncCoachMemorySoon(0);
   try {
     await apiJson("/api/logout", { method: "POST", body: "{}" });
   } catch {}
   currentUser = null;
   leaderboardRowsCache = [];
+  loadLocalCoachMemory();
   hideLeaderboard();
   ensureAuthUI().classList.add("is-visible");
 }
@@ -1642,10 +1647,13 @@ function fmt(ms){
   return `${m}:${String(s).padStart(2,"0")}`;
 }
 
-function startTimer(){
-  startTs = Date.now();
+function startTimer(existingStartTs = Date.now()){
+  startTs = Number(existingStartTs) || Date.now();
   if (floatingTimer) floatingTimer.style.display = "block";
   if (timerId) clearInterval(timerId);
+  const initial = fmt(Date.now() - startTs);
+  if (timerText) timerText.textContent = initial;
+  if (floatingTimerDisplay) floatingTimerDisplay.textContent = initial;
   timerId = setInterval(() => {
     const formatted = fmt(Date.now() - startTs);
     if (timerText) timerText.textContent = formatted;
@@ -1675,6 +1683,7 @@ let TEST_SIZE = parseInt(localStorage.getItem("quiz_test_size") || "10", 10);
 testSizeSelect.value = String(TEST_SIZE);
 testSizeDisplay.textContent = TEST_SIZE;
 let answers = new Map(); // id -> (mcq: index 0..4) | (text: string)
+let activeTestRestoring = false;
 let skipObserver = null;
 let isProblemReviewMode = false;
 let activeProblemReviewBank = null;
@@ -1686,17 +1695,19 @@ const PROBLEM_REVIEW_VERSION = 1;
 const COACH_STATE_KEY = "quiz_general_coach_v1";
 const AI_ACTION_LOG_KEY = "quiz_ai_coach_actions_v1";
 const COACH_DEFAULT_AVATAR = "static/img/general-avatar.jpg";
-const COACH_AVATARS = {
-  kind: "static/img/general-avatars/kind.jpg",
-  strict: "static/img/general-avatars/strict.jpg",
-  drill: "static/img/general-avatars/drill.jpg",
-  danger: "static/img/general-avatars/danger.jpg",
-  offended: "static/img/general-avatars/offended.jpg",
-  thinking: "static/img/general-avatars/thinking.jpg",
-  command: "static/img/general-avatars/command.jpg"
+const COACH_AVATAR_MOODS = new Set(["kind", "strict", "drill", "danger", "offended", "thinking", "command"]);
+const COACH_REMOTE_AVATAR_STYLES = {
+  veteran: "General-Veteran",
+  iron: "Iron-Commander",
+  ghost: "Ghost-Staff",
+  red: "Red-Zone-Marshal",
+  cold: "Cold-Front-Colonel",
+  storm: "Storm-Drillmaster",
+  warden: "Quiz-Warden",
+  joker: "Barracks-Joker"
 };
 const AI_COACH_UNAVAILABLE_MESSAGE =
-  "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u0431\u0435\u0437 \u0441\u0432\u044f\u0437\u0438: OpenAI \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043b\u044e\u0447 \u0438\u043b\u0438 \u043b\u043e\u0433\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.";
+  "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0432\u0440\u0435\u043c\u0435\u043d\u043d\u043e \u0431\u0435\u0437 \u0441\u0432\u044f\u0437\u0438: AI-\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440 \u043d\u0435\u0434\u043e\u0441\u0442\u0443\u043f\u0435\u043d. \u041f\u0440\u043e\u0432\u0435\u0440\u044c \u043a\u043b\u044e\u0447 \u0438\u043b\u0438 \u043b\u043e\u0433\u0438 \u0441\u0435\u0440\u0432\u0435\u0440\u0430.";
 let aiCoachEnabled = true;
 let coachState = null;
 
@@ -1709,6 +1720,99 @@ let currentBankKey = DEFAULT_BANK_KEY;
 let hardQuestions = new Set(); // bank-local question ids
 let hardStats = {};            // { [bankN]: { streak, wrong } }
 
+function getActiveTestKey(){
+  return `quiz_active_test_v2_${currentUser?.id || "guest"}`;
+}
+
+function clearActiveTest(){
+  localStorage.removeItem(getActiveTestKey());
+}
+
+function saveActiveTest(){
+  if (activeTestRestoring || !TEST.length || isInLearningMode) return;
+  const payload = {
+    version: 2,
+    userId: currentUser?.id || "guest",
+    savedAt: Date.now(),
+    startedAt: startTs || Date.now(),
+    bankKey: currentBankKey,
+    mode,
+    hardMode,
+    lastStartWasHardOnly,
+    testSize: TEST_SIZE,
+    curIdx,
+    isProblemReviewMode,
+    activeProblemReviewBank,
+    liveCoachHintsLocked,
+    test: TEST,
+    answers: Array.from(answers.entries()),
+  };
+  localStorage.setItem(getActiveTestKey(), JSON.stringify(payload));
+}
+
+function restoreActiveTest(){
+  if (TEST.length && startBtn.disabled) return false;
+  const saved = readJson(getActiveTestKey(), null);
+  if (!saved || saved.version !== 2 || !Array.isArray(saved.test) || !saved.test.length) return false;
+  if (saved.userId !== (currentUser?.id || "guest")) {
+    clearActiveTest();
+    return false;
+  }
+  const maxAgeMs = 24 * 60 * 60 * 1000;
+  if (Date.now() - Number(saved.savedAt || 0) > maxAgeMs) {
+    clearActiveTest();
+    return false;
+  }
+
+  activeTestRestoring = true;
+  try {
+    const bankKey = resolveBankKey(saved.bankKey || currentBankKey);
+    if (bankKey !== currentBankKey && bankSelect) {
+      bankSelect.value = bankKey;
+      setBank(bankKey, { clearActive: false });
+    }
+    currentBankKey = bankKey;
+    mode = saved.mode === "text" ? "text" : "mcq";
+    if (modeSelect) modeSelect.value = mode;
+    TEST_SIZE = Math.max(1, Number(saved.testSize || saved.test.length || TEST_SIZE));
+    if (testSizeSelect) testSizeSelect.value = String(TEST_SIZE);
+    if (testSizeDisplay) testSizeDisplay.textContent = TEST_SIZE;
+    hardMode = Boolean(saved.hardMode);
+    if (hardModeToggle) hardModeToggle.checked = hardMode;
+    localStorage.setItem("quiz_hardmode", hardMode ? "1" : "0");
+    lastStartWasHardOnly = Boolean(saved.lastStartWasHardOnly);
+    isProblemReviewMode = Boolean(saved.isProblemReviewMode);
+    activeProblemReviewBank = saved.activeProblemReviewBank || null;
+    liveCoachHintsLocked = Boolean(saved.liveCoachHintsLocked);
+    TEST = saved.test;
+    answers = new Map(Array.isArray(saved.answers) ? saved.answers : []);
+    curIdx = Math.max(0, Math.min(TEST.length - 1, Number(saved.curIdx || 0)));
+    isInLearningMode = false;
+
+    appEl.classList.remove("has-output");
+    elOut.style.display = "none";
+    elOut.innerHTML = "";
+    setRunning(true);
+    renderTest();
+    startTimer(Number(saved.startedAt || Date.now()));
+    startBtn.disabled = true;
+    learnBtn.disabled = hardMode;
+    restartBtn.disabled = true;
+    finishBtn.disabled = false;
+    if (abortBtn) abortBtn.disabled = false;
+    updateHardButton();
+    if (hardMode) {
+      startQuestionTimer();
+      startHardmodeMusic();
+    }
+    setStatusPill("\u0422\u0435\u0441\u0442 \u0432\u043e\u0441\u0441\u0442\u0430\u043d\u043e\u0432\u043b\u0435\u043d");
+    saveActiveTest();
+    return true;
+  } finally {
+    activeTestRestoring = false;
+  }
+}
+
 function readJson(key, fallback){
   try {
     const saved = localStorage.getItem(key);
@@ -1719,8 +1823,80 @@ function readJson(key, fallback){
   }
 }
 
+function defaultCoachMemory(){
+  return { recent: [], disrespectCount: 0 };
+}
+
+function normalizeCoachMemory(memory){
+  const source = memory && typeof memory === "object" ? memory : {};
+  const recent = Array.isArray(source.recent) ? source.recent : [];
+  return {
+    disrespectCount: Math.max(0, Math.min(1000, Number(source.disrespectCount || 0))),
+    recent: recent.slice(-20).map(item => ({
+      kind: String(item?.kind || "").slice(0, 20),
+      text: String(item?.text || "").replace(/\s+/g, " ").trim().slice(0, 220),
+      at: Math.max(0, Number(item?.at || Date.now())),
+      disrespectful: Boolean(item?.disrespectful),
+    })).filter(item => item.kind || item.text),
+  };
+}
+
+function getCoachMemoryKey(){
+  return `quiz_general_coach_memory_v1_${currentUser?.id || "guest"}`;
+}
+
+function loadLocalCoachMemory(){
+  coachMemory = normalizeCoachMemory(readJson(getCoachMemoryKey(), defaultCoachMemory()));
+}
+
+function saveLocalCoachMemory(){
+  localStorage.setItem(getCoachMemoryKey(), JSON.stringify(normalizeCoachMemory(coachMemory)));
+}
+
+async function loadServerCoachMemory(){
+  if (!currentUser || window.location.protocol === "file:") {
+    loadLocalCoachMemory();
+    return;
+  }
+  try {
+    const data = await apiJson("/api/coach-memory");
+    const local = normalizeCoachMemory(readJson(getCoachMemoryKey(), defaultCoachMemory()));
+    const remote = normalizeCoachMemory(data.coachMemory);
+    coachMemory = normalizeCoachMemory({
+      disrespectCount: Math.max(local.disrespectCount, remote.disrespectCount),
+      recent: [...local.recent, ...remote.recent]
+        .sort((a, b) => Number(a.at || 0) - Number(b.at || 0))
+        .filter((item, index, arr) => arr.findIndex(x => x.kind === item.kind && x.text === item.text && x.at === item.at) === index)
+        .slice(-20),
+    });
+    saveLocalCoachMemory();
+    syncCoachMemorySoon(50);
+  } catch {
+    loadLocalCoachMemory();
+  }
+}
+
+function syncCoachMemorySoon(delay = 900){
+  saveLocalCoachMemory();
+  if (!currentUser || window.location.protocol === "file:") return;
+  if (coachMemorySyncTimer) clearTimeout(coachMemorySyncTimer);
+  coachMemorySyncTimer = setTimeout(async () => {
+    coachMemorySyncTimer = null;
+    try {
+      await apiJson("/api/coach-memory", {
+        method: "POST",
+        body: JSON.stringify({ coachMemory: normalizeCoachMemory(coachMemory) }),
+      });
+    } catch (error) {
+      console.warn("[coach] memory sync failed:", error);
+    }
+  }, delay);
+}
+
 function defaultCoachState(){
   return {
+    title: "\u0413\u0435\u043d\u0435\u0440\u0430\u043b",
+    avatarStyle: "veteran",
     tone: "kind",
     wrongStreak: 0,
     missedStreak: 0,
@@ -1792,15 +1968,21 @@ function randomCoachDisciplineAction(reason = "first disrespectful message"){
 
 function setCoachAvatarMood(mood){
   if (!coachState) coachState = loadCoachState();
-  const nextMood = COACH_AVATARS[mood] ? mood : "kind";
+  const nextMood = COACH_AVATAR_MOODS.has(mood) ? mood : "kind";
   coachState.avatarMood = nextMood;
   saveCoachState();
   document.querySelectorAll("[data-coach-avatar]").forEach(img => setCoachAvatarImage(img, nextMood));
 }
 
+function getRemoteCoachAvatarUrl(style = coachState?.avatarStyle || "veteran", mood = coachState?.avatarMood || "kind"){
+  const seed = COACH_REMOTE_AVATAR_STYLES[style] || COACH_REMOTE_AVATAR_STYLES.veteran;
+  const background = mood === "danger" || mood === "offended" ? "3b0b18" : mood === "thinking" ? "111827" : "1f2937";
+  return `https://api.dicebear.com/9.x/adventurer-neutral/svg?seed=${encodeURIComponent(seed)}&backgroundColor=${background}&radius=8`;
+}
+
 function setCoachAvatarImage(img, mood = coachState?.avatarMood || "kind"){
   if (!img) return;
-  const src = COACH_AVATARS[mood] || COACH_DEFAULT_AVATAR;
+  const src = getRemoteCoachAvatarUrl(coachState?.avatarStyle, mood);
   img.dataset.coachAvatar = mood;
   img.onerror = () => {
     if (img.src.endsWith("/general-avatar.jpg")) return;
@@ -2165,6 +2347,37 @@ function normalizeCoachDisplayMessage(value){
   return raw;
 }
 
+function applyCoachPersona(data = {}){
+  if (!coachState) coachState = loadCoachState();
+  const title = String(data.title || "").replace(/\s+/g, " ").trim().slice(0, 34);
+  const avatarStyle = String(data.avatarStyle || "").trim();
+  if (title) coachState.title = title;
+  if (COACH_REMOTE_AVATAR_STYLES[avatarStyle]) coachState.avatarStyle = avatarStyle;
+  saveCoachState();
+  document.querySelectorAll("[data-coach-avatar]").forEach(img => setCoachAvatarImage(img, coachState.avatarMood));
+}
+
+function escapeRegExp(value){
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function sanitizeLiveHintMessage(message, item, selectedIsCorrect){
+  const raw = String(message || "").trim();
+  if (!raw || !item) return raw;
+  const correct = String(item.correctText || "").trim();
+  const mentionsCorrect = correct
+    ? new RegExp(`(^|[^\\p{L}\\p{N}_])${escapeRegExp(correct)}([^\\p{L}\\p{N}_]|$)`, "iu").test(raw)
+    : false;
+  const wronglyApproved = selectedIsCorrect === false && /^(да|верно|правильно|yes|correct)\b/i.test(raw);
+  if (selectedIsCorrect === false && (mentionsCorrect || wronglyApproved)) {
+    return "\u041d\u0435\u0442, \u0432\u044b\u0431\u043e\u0440 \u043d\u0435 \u0442\u043e\u0442. \u0421\u043c\u043e\u0442\u0440\u0438 \u043d\u0430 \u0441\u043c\u044b\u0441\u043b: \u0447\u0442\u043e \u0438\u043c\u0435\u043d\u043d\u043e \u0434\u043e\u043b\u0436\u043d\u043e \u043f\u043e\u0432\u0442\u043e\u0440\u044f\u0442\u044c\u0441\u044f \u043f\u043e \u044d\u043b\u0435\u043c\u0435\u043d\u0442\u0430\u043c.";
+  }
+  if (selectedIsCorrect === true && mentionsCorrect) {
+    return "\u0414\u0430, \u0432\u044b\u0431\u043e\u0440 \u0432\u0435\u0440\u043d\u044b\u0439. \u041d\u0435 \u0440\u0430\u0441\u0441\u043b\u0430\u0431\u043b\u044f\u0439\u0441\u044f, \u0434\u0430\u043b\u044c\u0448\u0435.";
+  }
+  return raw;
+}
+
 function renderCoachPanel(message){
   if (!isAiCoachEnabled()){
     updateCoachToggleUI();
@@ -2190,7 +2403,7 @@ function renderCoachPanel(message){
   };
 
   panel.dataset.tone = coachState.tone;
-  if (title) title.textContent = coachState.tone === "kind" ? "Р РµР¶РёРј РіРµРЅРµСЂР°Р»Р°" : "Р“РµРЅРµСЂР°Р»-С‚СЂРµРЅРёСЂРѕРІРєР°";
+  if (title) title.textContent = coachState.title || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b";
   if (tone) tone.textContent = toneLabels[coachState.tone] || coachState.tone;
   if (msg) msg.textContent = message || coachState.lastMessage || "Р“РµРЅРµСЂР°Р» РЅР° СЃРІСЏР·Рё. Р Р°Р±РѕС‚Р°РµРј СЃРїРѕРєРѕР№РЅРѕ Рё С‚РѕС‡РЅРѕ.";
 
@@ -2340,14 +2553,15 @@ function rememberCoachExchange(kind, text, extra = {}){
     disrespectful: Boolean(extra.disrespectful),
   };
   coachMemory.recent.push(entry);
-  while (coachMemory.recent.length > 10) coachMemory.recent.shift();
+  while (coachMemory.recent.length > 20) coachMemory.recent.shift();
   if (entry.disrespectful) coachMemory.disrespectCount++;
+  syncCoachMemorySoon();
 }
 
 function getCoachMemoryPayload(){
   return {
     disrespectCount: coachMemory.disrespectCount,
-    recent: coachMemory.recent.slice(-6),
+    recent: coachMemory.recent.slice(-10),
   };
 }
 
@@ -2411,6 +2625,9 @@ function askLiveCoachHint(item, card, initialText = ""){
   }
   const disrespectful = isDisrespectfulCoachText(text);
   rememberCoachExchange("liveHintUser", text, { disrespectful });
+  const selectedAnswer = answers.get(item.id);
+  const hasSelectedAnswer = selectedAnswer !== undefined && selectedAnswer !== "";
+  const selectedIsCorrect = hasSelectedAnswer ? evaluateAnswerForItem(item, selectedAnswer, mode) : null;
 
   if (answer) answer.textContent = "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u0434\u0443\u043c\u0430\u0435\u0442...";
   if (askBtn) askBtn.disabled = true;
@@ -2425,19 +2642,26 @@ function askLiveCoachHint(item, card, initialText = ""){
       question: item.q || "",
       options: Array.isArray(item.options) ? item.options : [],
       userQuestion: text,
-      userAnswer: getAnswerTextForCoach(item, answers.get(item.id)),
+      userAnswer: getAnswerTextForCoach(item, selectedAnswer),
       problemMode: Boolean(isProblemReviewMode),
       stats: {
         wrongStreak: coachState?.wrongStreak || 0,
         missedStreak: coachState?.missedStreak || 0,
         questionNumber: item.n,
+        selectedIsCorrect,
+        hasSelectedAnswer,
         problemCandidates: getProblemCandidates(currentBankKey).length,
         userDisrespectedGeneral: disrespectful,
         coachMemory: getCoachMemoryPayload(),
       },
     }),
   }).then(data => {
-    const message = normalizeCoachDisplayMessage(data?.message || "");
+    applyCoachPersona(data);
+    const message = sanitizeLiveHintMessage(
+      normalizeCoachDisplayMessage(data?.message || ""),
+      item,
+      selectedIsCorrect
+    );
     if (answer) answer.textContent = message || "\u0413\u0435\u043d\u0435\u0440\u0430\u043b \u043f\u0440\u043e\u043c\u043e\u043b\u0447\u0430\u043b. \u041f\u043e\u043f\u0440\u043e\u0431\u0443\u0439 \u0441\u0444\u043e\u0440\u043c\u0443\u043b\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0438\u043d\u0430\u0447\u0435.";
     if (message) rememberCoachExchange("coach", message);
     if (data?.action) applyAiCoachAction(data.action, { event: "liveHint", data: { item }, message });
@@ -2643,6 +2867,7 @@ function showGeneralCommandDialog(action, context = {}){
             problemMode: Boolean(state.problemReview?.active || state.problemReview?.locked),
           }),
         });
+        applyCoachPersona(data);
         if (data?.message && message) message.textContent = normalizeCoachDisplayMessage(data.message);
         if (data?.message) rememberCoachExchange("coach", normalizeCoachDisplayMessage(data.message));
         const nextAction = data?.action && typeof data.action === "object" ? data.action : { type: "none" };
@@ -2846,6 +3071,7 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
     }
     if (!coachState || coachState.lastMessage !== localMessage) return;
 
+    applyCoachPersona(json);
     coachState.lastMessage = message;
     rememberCoachExchange("coach", message);
     coachState.lastMessageAt = Date.now();
@@ -3554,6 +3780,7 @@ function continueProblemReviewRound(result){
   `;
   elOut.style.display = "block";
   startTimer();
+  saveActiveTest();
   updateStartDashboard();
   return true;
 }
@@ -3804,6 +4031,7 @@ function renderTest(){
       inp.addEventListener("input", () => {
         answers.set(item.id, inp.value);
         setSkipUI(card, inp.value.trim() === "");
+        saveActiveTest();
       });
       inp.addEventListener("keydown", (e) => {
         if (!hardMode || e.key !== "Enter") return;
@@ -3835,6 +4063,7 @@ function renderTest(){
         radio.addEventListener("change", () => {
           answers.set(item.id, Number(radio.value));
           setSkipUI(card, false);
+          saveActiveTest();
           if (hardMode) {
             stopQuestionTimer();
             setTimeout(() => breakAndNext(false), 100);
@@ -3995,6 +4224,8 @@ if (isProblemReviewMode){
 }
 
 // === HARDMODE ACHIEVEMENT (С‚РѕР»СЊРєРѕ РµСЃР»Рё 100% Рё С‚РµСЃС‚ >= 50) ===
+clearActiveTest();
+
 const hardModePassed = hardMode && TEST.length >= 50 && percent === 100;
 let achievedTier = 0;
 if (hardModePassed) {
@@ -4224,6 +4455,7 @@ function stopQuestionTimer(){
 function timeUp(){
   // РЅРµ РѕС‚РІРµС‚РёР» -> СЃС‡РёС‚Р°РµС‚СЃСЏ РЅРµРїСЂР°РІРёР»СЊРЅС‹Рј
   answers.set(TEST[curIdx].id, -1); // -1 = РїСѓСЃС‚Рѕ/РЅРµ РѕС‚РІРµС‡РµРЅРѕ
+  saveActiveTest();
   if (hardMode) {
     showHardModeFail();
   } else {
@@ -4331,6 +4563,7 @@ function nextQuestion(){
     finish();
     return;
   }
+  saveActiveTest();
   renderTest();
   startQuestionTimer();
 }
@@ -4390,7 +4623,8 @@ function getQuestionMapForBank(bankKey){
   return new Map((items || []).map(x => [x.n, x.q]));
 }
 
-function setBank(name) {
+function setBank(name, options = {}) {
+  const shouldClearActive = options.clearActive !== false;
   const key = resolveBankKey(name);
   const items = getBankItems(key);
   if (!items) return;
@@ -4423,6 +4657,7 @@ function setBank(name) {
 
   // РЎРѕС…СЂР°РЅСЏРµРј РІС‹Р±РѕСЂ
   localStorage.setItem("quiz_bank", name);
+  if (shouldClearActive) clearActiveTest();
 
   // РџРѕР»РЅРѕСЃС‚СЊСЋ СЃР±СЂР°СЃС‹РІР°РµРј СЃРѕСЃС‚РѕСЏРЅРёРµ С‚РµРєСѓС‰РµРіРѕ С‚РµСЃС‚Р°
   TEST = [];
@@ -4510,6 +4745,7 @@ modeSelect.addEventListener("change", () => {
   updateStartDashboard();
   if (startBtn.disabled && TEST.length && !isInLearningMode) {
     renderTest();
+    saveActiveTest();
   }
 });
 
@@ -4518,6 +4754,7 @@ testSizeSelect.addEventListener("change", () => {
   localStorage.setItem("quiz_test_size", String(TEST_SIZE));
   testSizeDisplay.textContent = TEST_SIZE;
   updateStartDashboard();
+  if (TEST.length && startBtn.disabled) saveActiveTest();
 });
 
 updateTranslationUI();
@@ -4528,11 +4765,12 @@ if (translateBtn){
     updateTranslationUI();
     updateStartDashboard();
 
-    if (isInLearningMode && TEST.length){
-      showAnswers();
-    } else if (TEST.length && startBtn.disabled){
-      renderTest();
-    }
+  if (isInLearningMode && TEST.length){
+    showAnswers();
+  } else if (TEST.length && startBtn.disabled){
+    renderTest();
+    saveActiveTest();
+  }
   });
 }
 
@@ -4575,6 +4813,7 @@ function startQuiz({ hardOnly = false } = {}){
   setRunning(true);
   renderTest();
   startTimer();
+  saveActiveTest();
   coachReact(isProblemReviewMode ? "problemStart" : "start", {
     pending: getProblemReviewStatus(activeProblemReviewBank || currentBankKey).pending
   });
@@ -4612,6 +4851,7 @@ function abortTest(){
   stopQuestionTimer();
   stopHardmodeMusic();
   stopTimer();
+  clearActiveTest();
 
   TEST = [];
   answers.clear();
