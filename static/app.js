@@ -1744,6 +1744,7 @@ function saveActiveTest(){
     isProblemReviewMode,
     activeProblemReviewBank,
     liveCoachHintsLocked,
+    liveCoachHintUsed: Array.from(liveCoachHintUsed),
     test: TEST,
     answers: Array.from(answers.entries()),
   };
@@ -1784,6 +1785,10 @@ function restoreActiveTest(){
     isProblemReviewMode = Boolean(saved.isProblemReviewMode);
     activeProblemReviewBank = saved.activeProblemReviewBank || null;
     liveCoachHintsLocked = Boolean(saved.liveCoachHintsLocked);
+    liveCoachHintUsed.clear();
+    if (Array.isArray(saved.liveCoachHintUsed)) {
+      saved.liveCoachHintUsed.forEach(key => liveCoachHintUsed.add(String(key)));
+    }
     TEST = saved.test;
     answers = new Map(Array.isArray(saved.answers) ? saved.answers : []);
     curIdx = Math.max(0, Math.min(TEST.length - 1, Number(saved.curIdx || 0)));
@@ -2667,6 +2672,7 @@ function askLiveCoachHint(item, card, initialText = ""){
     if (data?.action) applyAiCoachAction(data.action, { event: "liveHint", data: { item }, message });
     if (message) {
       if (hintKey) liveCoachHintUsed.add(hintKey);
+      saveActiveTest();
       if (input) input.disabled = true;
       if (askBtn) askBtn.disabled = true;
       if (micBtn) micBtn.disabled = true;
