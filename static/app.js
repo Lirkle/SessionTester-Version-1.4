@@ -1922,10 +1922,8 @@ function setCoachThemeClass(theme){
 }
 
 function loadCoachTheme(){
-  const saved = readJson(getCoachThemeKey(), null);
-  const theme = COACH_THEME_NAMES.includes(saved?.theme) ? saved.theme : "";
-  setCoachThemeClass(theme);
-  return { theme, changedAt: Number(saved?.changedAt || 0) };
+  clearCoachTheme();
+  return { theme: "", changedAt: 0 };
 }
 
 function clearCoachTheme(){
@@ -1934,16 +1932,8 @@ function clearCoachTheme(){
 }
 
 function applyCoachThemeChoice(theme, context = {}){
-  const requested = String(theme || "keep").trim();
-  if (requested === "keep" || !COACH_THEME_NAMES.includes(requested)) return false;
-  const saved = loadCoachTheme();
-  if (saved.theme === requested) return false;
-  const now = Date.now();
-  const force = context.event === "hardFail" || context.event === "problemCleared" || Boolean(context.disrespectful);
-  if (!force && now - saved.changedAt < COACH_THEME_COOLDOWN_MS) return false;
-  localStorage.setItem(getCoachThemeKey(), JSON.stringify({ theme: requested, changedAt: now }));
-  setCoachThemeClass(requested);
-  return true;
+  clearCoachTheme();
+  return false;
 }
 
 function loadLocalCoachMemory(){

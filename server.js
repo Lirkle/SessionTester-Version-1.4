@@ -9,6 +9,7 @@ const DATA_DIR = path.join(ROOT, "data");
 const USERS_FILE = path.join(DATA_DIR, "users.json");
 const SETTINGS_FILE = path.join(DATA_DIR, "app-settings.json");
 const sessions = new Map();
+const SESSION_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 function loadDotEnv(){
   const envPath = path.join(ROOT, ".env");
@@ -170,6 +171,16 @@ async function initDatabase(){
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `);
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS user_sessions (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+  await pgPool.query(`CREATE INDEX IF NOT EXISTS user_sessions_user_id_idx ON user_sessions (user_id)`);
+  await pgPool.query(`DELETE FROM user_sessions WHERE expires_at <= NOW()`);
 }
 
 async function getAppSettings(){
@@ -316,7 +327,7 @@ function parseCookies(req){
 }
 
 function setSessionCookie(res, token){
-  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=2592000`);
+  res.setHeader("Set-Cookie", `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${SESSION_TTL_SECONDS}`);
 }
 
 function clearSessionCookie(res){
@@ -326,9 +337,40 @@ function clearSessionCookie(res){
 async function getSessionUser(req){
   const token = parseCookies(req)[SESSION_COOKIE];
   if (!token) return null;
-  const userId = sessions.get(token);
-  if (!userId) return null;
+  let userId = sessions.get(token);
+  if (!userId && pgPool) {
+    const result = await pgPool.query(
+      `SELECT user_id FROM user_sessions
+       WHERE token = $1 AND expires_at > NOW()`,
+      [token]
+    );
+    userId = result.rows[0]?.user_id || null;
+    if (userId) sessions.set(token, userId);
+  }
+  if (!userId) {
+    if (pgPool) await pgPool.query("DELETE FROM user_sessions WHERE token = $1", [token]);
+    return null;
+  }
   return findUserById(userId);
+}
+
+async function createSession(userId){
+  const token = crypto.randomBytes(32).toString("hex");
+  sessions.set(token, userId);
+  if (pgPool) {
+    await pgPool.query(
+      `INSERT INTO user_sessions (token, user_id, expires_at)
+       VALUES ($1, $2, NOW() + ($3::int * INTERVAL '1 second'))`,
+      [token, userId, SESSION_TTL_SECONDS]
+    );
+  }
+  return token;
+}
+
+async function deleteSession(token){
+  if (!token) return;
+  sessions.delete(token);
+  if (pgPool) await pgPool.query("DELETE FROM user_sessions WHERE token = $1", [token]);
 }
 
 function validateCredentials(username, password){
@@ -445,8 +487,8 @@ const COACH_SYSTEM_PROMPT =
   "При liveHint action.type ставишь 'none', кроме случаев явного хамства — тогда discipline_penalty. " +
   "Ты сам выбираешь себе короткое имя/звание под настроение в поле title: например «Командир Ноль», «Полковник Ржавчина», «Штабной Демон», но каждый раз можешь менять. " +
   "Ты сам выбираешь себе внешний аватар в поле avatarStyle строго из списка veteran|iron|ghost|red|cold|storm|warden|joker. Выбирай по настроению и событию. " +
-  "Ты можешь локально менять тему сайта через поле theme строго из списка keep|crimson|frost|venom|ash|royal|ember. Обычно ставь keep; меняй тему редко, когда настроение пользователя, серия ошибок, хороший рывок или хамство реально заслуживают смены атмосферы. " +
-  "Формат ответа — строго JSON без markdown: {\"title\":\"короткое имя генерала\",\"avatarStyle\":\"veteran|iron|ghost|red|cold|storm|warden|joker\",\"theme\":\"keep|crimson|frost|venom|ash|royal|ember\",\"message\":\"одна короткая реплика на русском\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"короткая внутренняя причина\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
+  "Не меняй тему сайта и не возвращай поле theme: интерфейс всегда остается в профессиональной темной теме. " +
+  "Формат ответа — строго JSON без markdown: {\"title\":\"короткое имя генерала\",\"avatarStyle\":\"veteran|iron|ghost|red|cold|storm|warden|joker\",\"message\":\"одна короткая реплика на русском\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"короткая внутренняя причина\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
   "Никогда не ставь на паузу и не блокируй интерфейс теста. boost_problem_question — только после ошибки/пропуска/hardFail. start_micro_drill — только после завершения раунда/finish при наличии слабых мест; размер от 3 до 10 в зависимости от problemCandidates. " +
   "После finish, если percent <= 60, wrongStreak >= 8, missedStreak >= 4 и problemCandidates >= 3, с высокой вероятностью предлагай start_micro_drill, а не none. " +
   "На commandReply оценивай ответ пользователя: если согласен/готов — start_micro_drill; если отказывается, шутит, тянет или сомневается — отвечаешь в образе и возвращаешь none.";
@@ -823,8 +865,7 @@ async function handleRegister(req, res){
   };
   const savedUser = await createUserRecord(user);
 
-  const token = crypto.randomBytes(32).toString("hex");
-  sessions.set(token, savedUser.id);
+  const token = await createSession(savedUser.id);
   setSessionCookie(res, token);
   sendJson(res, 201, { user: publicUser(savedUser), leaderboard: await leaderboardRows() });
 }
@@ -846,8 +887,7 @@ async function handleLogin(req, res){
     return sendJson(res, 401, { error: "invalid_login" });
   }
 
-  const token = crypto.randomBytes(32).toString("hex");
-  sessions.set(token, user.id);
+  const token = await createSession(user.id);
   setSessionCookie(res, token);
   sendJson(res, 200, { user: publicUser(user), leaderboard: await leaderboardRows() });
 }
@@ -858,9 +898,9 @@ async function handleMe(req, res){
   sendJson(res, 200, { user: publicUser(user), leaderboard: await leaderboardRows() });
 }
 
-function handleLogout(req, res){
+async function handleLogout(req, res){
   const token = parseCookies(req)[SESSION_COOKIE];
-  if (token) sessions.delete(token);
+  await deleteSession(token);
   clearSessionCookie(res);
   sendJson(res, 200, { ok: true });
 }
