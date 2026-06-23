@@ -229,6 +229,8 @@ const translateBtn = document.getElementById("translateBtn");
 let currentUser = null;
 let leaderboardRowsCache = [];
 let microphoneAccessGranted = false;
+const COACH_THEME_NAMES = ["crimson", "frost", "venom", "ash", "royal", "ember"];
+const COACH_THEME_COOLDOWN_MS = 8 * 60 * 1000;
 const liveCoachHintUsed = new Set();
 let liveCoachHintsLocked = false;
 let coachMemory = {
@@ -1405,6 +1407,7 @@ function ensureAuthUI(){
 function applyAuthState(data){
   currentUser = data?.user || null;
   leaderboardRowsCache = Array.isArray(data?.leaderboard) ? data.leaderboard : leaderboardRowsCache;
+  loadCoachTheme();
   loadServerCoachMemory();
   restoreActiveTest();
   renderUserBadge();
@@ -1500,6 +1503,7 @@ async function logoutUser(){
   currentUser = null;
   leaderboardRowsCache = [];
   loadLocalCoachMemory();
+  clearCoachTheme();
   hideLeaderboard();
   ensureAuthUI().classList.add("is-visible");
 }
@@ -1895,6 +1899,42 @@ function normalizeCoachMemory(memory){
 
 function getCoachMemoryKey(){
   return `quiz_general_coach_memory_v1_${currentUser?.id || "guest"}`;
+}
+
+function getCoachThemeKey(){
+  return `quiz_general_theme_v1_${currentUser?.id || "guest"}`;
+}
+
+function setCoachThemeClass(theme){
+  document.body.classList.remove(...COACH_THEME_NAMES.map(name => `coach-theme--${name}`));
+  if (COACH_THEME_NAMES.includes(theme)) {
+    document.body.classList.add(`coach-theme--${theme}`);
+  }
+}
+
+function loadCoachTheme(){
+  const saved = readJson(getCoachThemeKey(), null);
+  const theme = COACH_THEME_NAMES.includes(saved?.theme) ? saved.theme : "";
+  setCoachThemeClass(theme);
+  return { theme, changedAt: Number(saved?.changedAt || 0) };
+}
+
+function clearCoachTheme(){
+  localStorage.removeItem(getCoachThemeKey());
+  setCoachThemeClass("");
+}
+
+function applyCoachThemeChoice(theme, context = {}){
+  const requested = String(theme || "keep").trim();
+  if (requested === "keep" || !COACH_THEME_NAMES.includes(requested)) return false;
+  const saved = loadCoachTheme();
+  if (saved.theme === requested) return false;
+  const now = Date.now();
+  const force = context.event === "hardFail" || context.event === "problemCleared" || Boolean(context.disrespectful);
+  if (!force && now - saved.changedAt < COACH_THEME_COOLDOWN_MS) return false;
+  localStorage.setItem(getCoachThemeKey(), JSON.stringify({ theme: requested, changedAt: now }));
+  setCoachThemeClass(requested);
+  return true;
 }
 
 function loadLocalCoachMemory(){
@@ -2399,12 +2439,13 @@ function normalizeCoachDisplayMessage(value){
   return raw;
 }
 
-function applyCoachPersona(data = {}){
+function applyCoachPersona(data = {}, context = {}){
   if (!coachState) coachState = loadCoachState();
   const title = String(data.title || "").replace(/\s+/g, " ").trim().slice(0, 34);
   const avatarStyle = String(data.avatarStyle || "").trim();
   if (title) coachState.title = title;
   if (COACH_REMOTE_AVATAR_STYLES[avatarStyle]) coachState.avatarStyle = avatarStyle;
+  applyCoachThemeChoice(data.theme, context);
   saveCoachState();
   document.querySelectorAll("[data-coach-avatar]").forEach(img => setCoachAvatarImage(img, coachState.avatarMood));
 }
@@ -2617,6 +2658,15 @@ function getCoachMemoryPayload(){
   };
 }
 
+function getCoachThemePayload(){
+  const saved = loadCoachTheme();
+  return {
+    currentTheme: saved.theme || "default",
+    changedSecondsAgo: saved.changedAt ? Math.floor((Date.now() - saved.changedAt) / 1000) : null,
+    cooldownSeconds: Math.floor(COACH_THEME_COOLDOWN_MS / 1000),
+  };
+}
+
 function setCoachHelpControlsLocked(card, locked, text = ""){
   const box = card?.querySelector?.(".coach-help");
   if (!box) return;
@@ -2706,10 +2756,11 @@ function askLiveCoachHint(item, card, initialText = ""){
         problemCandidates: getProblemCandidates(currentBankKey).length,
         userDisrespectedGeneral: disrespectful,
         coachMemory: getCoachMemoryPayload(),
+        coachTheme: getCoachThemePayload(),
       },
     }),
   }).then(data => {
-    applyCoachPersona(data);
+    applyCoachPersona(data, { event: "liveHint", disrespectful });
     const message = sanitizeLiveHintMessage(
       normalizeCoachDisplayMessage(data?.message || ""),
       item,
@@ -2917,11 +2968,12 @@ function showGeneralCommandDialog(action, context = {}){
               proposedSize: Number(action?.size || 3) || 3,
               userDisrespectedGeneral: disrespectful,
               coachMemory: getCoachMemoryPayload(),
+              coachTheme: getCoachThemePayload(),
             }),
             problemMode: Boolean(state.problemReview?.active || state.problemReview?.locked),
           }),
         });
-        applyCoachPersona(data);
+        applyCoachPersona(data, { event: "commandReply", disrespectful });
         if (data?.message && message) message.textContent = normalizeCoachDisplayMessage(data.message);
         if (data?.message) rememberCoachExchange("coach", normalizeCoachDisplayMessage(data.message));
         const nextAction = data?.action && typeof data.action === "object" ? data.action : { type: "none" };
@@ -3109,6 +3161,7 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
           severeReviewRecommended: event === "finish" && (Number(data.percent || 0) <= 60 || Number(coachState?.wrongStreak || 0) >= 8),
           canStartMicroDrill: !startBtn.disabled || !TEST.length,
           coachMemory: getCoachMemoryPayload(),
+          coachTheme: getCoachThemePayload(),
         },
       }),
     });
@@ -3125,7 +3178,7 @@ async function requestAiCoachMessage(event, tone, data = {}, localMessage = ""){
     }
     if (!coachState || coachState.lastMessage !== localMessage) return;
 
-    applyCoachPersona(json);
+    applyCoachPersona(json, { event, data });
     coachState.lastMessage = message;
     rememberCoachExchange("coach", message);
     coachState.lastMessageAt = Date.now();

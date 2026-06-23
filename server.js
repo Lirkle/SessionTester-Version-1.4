@@ -445,7 +445,8 @@ const COACH_SYSTEM_PROMPT =
   "При liveHint action.type ставишь 'none', кроме случаев явного хамства — тогда discipline_penalty. " +
   "Ты сам выбираешь себе короткое имя/звание под настроение в поле title: например «Командир Ноль», «Полковник Ржавчина», «Штабной Демон», но каждый раз можешь менять. " +
   "Ты сам выбираешь себе внешний аватар в поле avatarStyle строго из списка veteran|iron|ghost|red|cold|storm|warden|joker. Выбирай по настроению и событию. " +
-  "Формат ответа — строго JSON без markdown: {\"title\":\"короткое имя генерала\",\"avatarStyle\":\"veteran|iron|ghost|red|cold|storm|warden|joker\",\"message\":\"одна короткая реплика на русском\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"короткая внутренняя причина\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
+  "Ты можешь локально менять тему сайта через поле theme строго из списка keep|crimson|frost|venom|ash|royal|ember. Обычно ставь keep; меняй тему редко, когда настроение пользователя, серия ошибок, хороший рывок или хамство реально заслуживают смены атмосферы. " +
+  "Формат ответа — строго JSON без markdown: {\"title\":\"короткое имя генерала\",\"avatarStyle\":\"veteran|iron|ghost|red|cold|storm|warden|joker\",\"theme\":\"keep|crimson|frost|venom|ash|royal|ember\",\"message\":\"одна короткая реплика на русском\",\"action\":{\"type\":\"none|boost_problem_question|start_micro_drill|discipline_penalty\",\"size\":3,\"reason\":\"короткая внутренняя причина\",\"visual\":\"topbar|sidebar|cards|panel|tilt\"}}. " +
   "Никогда не ставь на паузу и не блокируй интерфейс теста. boost_problem_question — только после ошибки/пропуска/hardFail. start_micro_drill — только после завершения раунда/finish при наличии слабых мест; размер от 3 до 10 в зависимости от problemCandidates. " +
   "После finish, если percent <= 60, wrongStreak >= 8, missedStreak >= 4 и problemCandidates >= 3, с высокой вероятностью предлагай start_micro_drill, а не none. " +
   "На commandReply оценивай ответ пользователя: если согласен/готов — start_micro_drill; если отказывается, шутит, тянет или сомневается — отвечаешь в образе и возвращаешь none.";
@@ -524,6 +525,7 @@ const COACH_ACTIONS = new Set([
   "discipline_penalty",
 ]);
 const COACH_AVATAR_STYLES = new Set(["veteran", "iron", "ghost", "red", "cold", "storm", "warden", "joker"]);
+const COACH_THEMES = new Set(["keep", "crimson", "frost", "venom", "ash", "royal", "ember"]);
 
 function sanitizeCoachPersona(input){
   const source = input && typeof input === "object" ? input : {};
@@ -534,7 +536,10 @@ function sanitizeCoachPersona(input){
   const avatarStyle = COACH_AVATAR_STYLES.has(String(source.avatarStyle || ""))
     ? String(source.avatarStyle)
     : "";
-  return { title, avatarStyle };
+  const theme = COACH_THEMES.has(String(source.theme || ""))
+    ? String(source.theme)
+    : "keep";
+  return { title, avatarStyle, theme };
 }
 
 function parseCoachDecision(rawText){
@@ -558,7 +563,7 @@ function parseCoachDecision(rawText){
       reason: String(actionInput.reason || parsed.reason || "").replace(/\s+/g, " ").trim().slice(0, 180),
       visual: String(actionInput.visual || "").replace(/\s+/g, " ").trim().slice(0, 30),
     };
-    return { message, action, title: persona.title, avatarStyle: persona.avatarStyle };
+    return { message, action, title: persona.title, avatarStyle: persona.avatarStyle, theme: persona.theme };
   } catch {
     const messageMatch = jsonText.match(/"message"\s*:\s*"((?:\\.|[^"\\])*)"/);
     if (messageMatch) {
